@@ -4,7 +4,7 @@
 // Package rx provides Go access to various randomx library methods.
 package rx
 
-// #cgo CFLAGS: -std=c11 -D_GNU_SOURCE
+// #cgo CFLAGS: -std=c11 -D_GNU_SOURCE -m64
 // #cgo LDFLAGS: -L${SRCDIR}/cpp/ -Wl,-rpath,$ORIGIN ${SRCDIR}/cpp/rxlib.cpp.o -lrandomx -lstdc++ -lm
 /*
  #include <stdlib.h>
