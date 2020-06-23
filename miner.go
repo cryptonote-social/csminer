@@ -80,6 +80,8 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 
 	startKeyboardScanning()
 
+	wasJustMining := false
+
 	for {
 		clMutex.Lock()
 		clientAlive = false
@@ -114,7 +116,7 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 				time.Sleep(3 * time.Second)
 				break
 			}
-			pokeRes := handlePoke(job, excludeHrStart, excludeHrEnd)
+			pokeRes := handlePoke(wasJustMining, job, excludeHrStart, excludeHrEnd)
 			if pokeRes == HANDLED {
 				continue
 			}
@@ -128,8 +130,10 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 			}
 			crylog.Info("Got new job:", job.JobID, "w/ difficulty:", blockchain.TargetToDifficulty(job.Target))
 
-			// Stop existing mining, if any
+			// Stop existing mining, if any, and wait for mining threads to finish.
 			atomic.StoreUint32(&stopper, 1)
+			wg.Wait()
+
 			// Check if we need to reinitialize rx dataset
 			newSeed, err := hex.DecodeString(job.SeedHash)
 			if err != nil {
@@ -143,17 +147,25 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 				resetRecentStats()
 			}
 
-			// Wait until any previous mining is done before starting anew
-			wg.Wait()
-
-			// Start mining on new job if screensaver is active
+			// Start mining on new job if mining is active
 			if miningActive(excludeHrStart, excludeHrEnd) {
-				printStats()
+				if !wasJustMining {
+					// Reset recent stats whenever going from not mining to mining,
+					// and don't print stats because they could be inaccurate
+					resetRecentStats()
+					wasJustMining = true
+				} else {
+					printStats(true)
+				}
 				atomic.StoreUint32(&stopper, 0)
 				for i := 0; i < threads; i++ {
 					wg.Add(1)
 					go goMine(&wg, *job, i /*thread*/)
 				}
+			} else if wasJustMining {
+				// Print stats whenever we go from mining to not mining
+				printStats(false)
+				wasJustMining = false
 			}
 		}
 	}
@@ -172,10 +184,17 @@ func resetRecentStats() {
 	lastStatsResetTime = time.Now()
 }
 
-func printStats() {
+func printStats(isMining bool) {
 	crylog.Info("Shares    [accepted:rejected]:", sharesAccepted, ":", sharesRejected)
 	crylog.Info("Hashes          [client:pool]:", clientSideHashes, ":", poolSideHashes)
-	elapsed1 := lastStatsUpdateTime.Sub(startTime).Seconds()
+	var elapsed1 float64
+	if isMining {
+		// if we're actively mining then hash count is only accurate
+		// as of the last update time
+		elapsed1 = lastStatsUpdateTime.Sub(startTime).Seconds()
+	} else {
+		elapsed1 = time.Now().Sub(startTime).Seconds()
+	}
 	elapsed2 := lastStatsUpdateTime.Sub(lastStatsResetTime).Seconds()
 	if elapsed1 > 0.0 && elapsed2 > 0.0 {
 		crylog.Info("Hashes/sec [inception:recent]:",
@@ -301,10 +320,17 @@ func kickJobDispatcher(job *client.MultiClientJob) bool {
 }
 
 func miningActive(excludeHrStart, excludeHrEnd int) bool {
-	saver := atomic.LoadInt32(&screenIdle) > 0
-	toggled := atomic.LoadInt32(&manualMinerToggle) > 0
-	if !saver || timeExcluded(excludeHrStart, excludeHrEnd) {
-		return toggled
+	if atomic.LoadInt32(&manualMinerToggle) > 0 {
+		// keyboard override to always mine no matter what
+		return true
+	}
+	if atomic.LoadInt32(&screenIdle) == 0 {
+		// don't mine if screen is active
+		return false
+	}
+	if timeExcluded(excludeHrStart, excludeHrEnd) {
+		// don't mine if we're in the excluded time range
+		return false
 	}
 	return true
 }
@@ -332,49 +358,32 @@ func getActivityMessage(excludeHrStart, excludeHrEnd, threads int) string {
 	return onoff
 }
 
-func handlePoke(job *client.MultiClientJob, excludeHrStart, excludeHrEnd int) int {
+func handlePoke(wasMining bool, job *client.MultiClientJob, excludeHrStart, excludeHrEnd int) int {
+	var isMiningNow bool
 	if job == &SCREEN_ON_POKE {
-		if miningActive(excludeHrStart, excludeHrEnd) {
-			atomic.StoreUint32(&stopper, 1) // halt mining
-			wg.Wait()
-			printStats()
-		} // else mining was already halted
-		atomic.StoreInt32(&screenIdle, 0)
-		return HANDLED
-	}
-	if job == &SCREEN_IDLE_POKE {
-		if miningActive(excludeHrStart, excludeHrEnd) {
-			atomic.StoreInt32(&screenIdle, 1)
-			return HANDLED
-		} // else mining was already active
-		atomic.StoreInt32(&screenIdle, 1)
-		resetRecentStats()
-		return USE_CACHED
-	}
-	if job == &ENTER_HIT_POKE {
+		atomic.StoreInt32(&screenIdle, 0) // mark the screen as no longer idle
+	} else if job == &SCREEN_IDLE_POKE {
+		atomic.StoreInt32(&screenIdle, 1) // mark screen as idle
+	} else if job == &ENTER_HIT_POKE {
 		if atomic.LoadInt32(&manualMinerToggle) == 0 {
-			if miningActive(excludeHrStart, excludeHrEnd) {
-				// Ignore enter events if mining is already active due to non-keyboard events
-				return HANDLED
-			}
-			// start up paused miner due to keyboard override
 			atomic.StoreInt32(&manualMinerToggle, 1)
-			resetRecentStats()
-			return USE_CACHED
+		} else {
+			atomic.StoreInt32(&manualMinerToggle, 0)
 		}
-		if miningActive(excludeHrStart, excludeHrEnd) {
-			atomic.StoreUint32(&stopper, 1) // halt mining
-			wg.Wait()
-			printStats()
-		}
-		atomic.StoreInt32(&manualMinerToggle, 0)
-		return HANDLED
-	}
-	if job == &PRINT_STATS_POKE {
+	} else if job == &PRINT_STATS_POKE {
 		atomic.StoreUint32(&stopper, 1) // halt mining to get accurate stats
 		wg.Wait()
-		printStats()
-		return USE_CACHED // resume mining
+		printStats(wasMining)
+		return USE_CACHED // resumes mining
+	} else {
+		// the job is not a recognized poke
+		return 0
 	}
-	return 0
+	isMiningNow = miningActive(excludeHrStart, excludeHrEnd)
+	if wasMining != isMiningNow {
+		// mining state was toggled so fall through using last received job which will
+		// appropriately halt or restart any mining threads and/or print stats.
+		return USE_CACHED
+	}
+	return HANDLED
 }
