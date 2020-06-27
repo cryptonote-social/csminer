@@ -371,10 +371,11 @@ func handlePoke(wasMining bool, job *client.MultiClientJob, excludeHrStart, excl
 			atomic.StoreInt32(&manualMinerToggle, 0)
 		}
 	} else if job == &PRINT_STATS_POKE {
-		atomic.StoreUint32(&stopper, 1) // halt mining to get accurate stats
-		wg.Wait()
-		printStats(wasMining)
-		return USE_CACHED // resumes mining
+		if !wasMining {
+			printStats(wasMining)
+			return HANDLED
+		}
+		return USE_CACHED // main loop will print out stats
 	} else {
 		// the job is not a recognized poke
 		return 0
