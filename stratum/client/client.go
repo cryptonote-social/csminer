@@ -103,7 +103,7 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 		crylog.Error("json marshalling failed:", err, "for client:", cl)
 		return err
 	}
-	cl.conn.SetDeadline(time.Now().Add(30 * time.Second))
+	cl.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	data = append(data, '\n')
 	if _, err = cl.conn.Write(data); err != nil {
 		crylog.Error("writing request failed:", err, "for client:", cl)
@@ -120,7 +120,7 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 		} `json:"result"`
 		Error interface{} `json:"error"`
 	}{}
-	cl.conn.SetDeadline(time.Now().Add(30 * time.Second))
+	cl.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	err = readJSON(response, bufio.NewReaderSize(cl.conn, MAX_REQUEST_SIZE))
 	if err != nil {
 		crylog.Error("readJSON failed for client:", cl, err)
@@ -163,7 +163,7 @@ func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce str
 		crylog.Error("json marshalling failed:", err, "for client:", cl)
 		return nil, err
 	}
-	cl.conn.SetDeadline(time.Now().Add(60 * time.Second))
+	cl.conn.SetWriteDeadline(time.Now().Add(60 * time.Second))
 	data = append(data, '\n')
 	if _, err = cl.conn.Write(data); err != nil {
 		crylog.Error("writing request failed:", err, "for client:", cl)
@@ -202,7 +202,7 @@ func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, e
 		crylog.Error("json marshalling failed:", err, "for client:", cl)
 		return nil, err
 	}
-	cl.conn.SetDeadline(time.Now().Add(60 * time.Second))
+	cl.conn.SetWriteDeadline(time.Now().Add(60 * time.Second))
 	data = append(data, '\n')
 	if _, err = cl.conn.Write(data); err != nil {
 		crylog.Error("writing request failed:", err, "for client:", cl)
@@ -243,7 +243,7 @@ func dispatchJobs(conn net.Conn, jobChannel chan *MultiClientJob, responseChanne
 	reader := bufio.NewReaderSize(conn, MAX_REQUEST_SIZE)
 	for {
 		response := &SubmitWorkResponse{}
-		conn.SetDeadline(time.Now().Add(3600 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(3600 * time.Second))
 		err := readJSON(response, reader)
 		if err != nil {
 			crylog.Error("readJSON failed:", err)
@@ -263,6 +263,7 @@ func dispatchJobs(conn net.Conn, jobChannel chan *MultiClientJob, responseChanne
 		}
 		jobChannel <- response.Job
 	}
+	conn.Close()
 	close(jobChannel)
 	close(responseChannel)
 }
