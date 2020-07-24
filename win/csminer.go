@@ -13,7 +13,11 @@ import (
 type WinScreenStater struct {
 }
 
-func (s WinScreenStater) GetScreenStateChannel() (chan bool, error) {
+// We assume the screen is active when the miner is started. This may
+// not hold if someone is running the miner from an auto-start script?
+// TODO: On startup check if someone is logged in and if not assume screen
+// is locked.
+func GetScreenStateChannel() (chan bool, error) {
 	ret := make(chan bool)
 
 	chanMessages := make(chan session_notifications.Message, 100)

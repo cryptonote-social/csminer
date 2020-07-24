@@ -7,8 +7,8 @@ package main
 
 import (
 	"context"
-	"github.com/cryptonote-social/csminer/crylog"
 	"github.com/cryptonote-social/csminer"
+	"github.com/cryptonote-social/csminer/crylog"
 	"os/exec"
 	"strings"
 	"time"
@@ -20,15 +20,14 @@ type OSXScreenStater struct {
 // The OSX implementation of the screen state notification channel is based on polling
 // the state every 10 seconds. It would be better to figure out how to get notified
 // of state changes when they happen.
-func (s OSXScreenStater) GetScreenStateChannel() (chan bool, error) {
-	ret := make(chan bool)
+func (s OSXScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, error) {
+	ret := make(chan csminer.ScreenState)
 
 	go func() {
-		// We assume the screen is active when the miner is started. This may
-		// not hold if someone is running the miner from an auto-start script?
 		screenActive := true
+		batteryPower := false
 		for {
-			time.Sleep(time.Second * 10)
+			time.Sleep(time.Second * 5)
 			screenActiveNow, err := getScreenActiveState()
 			if err != nil {
 				crylog.Error("getScreenActiveState failed:", err)
@@ -36,7 +35,25 @@ func (s OSXScreenStater) GetScreenStateChannel() (chan bool, error) {
 			}
 			if screenActiveNow != screenActive {
 				screenActive = screenActiveNow
-				ret <- !screenActive
+				if screenActive {
+					ret <- csminer.ScreenState(SCREEN_ACTIVE)
+				} else {
+					ret <- csminer.ScreenState(SCREEN_IDLE)
+				}
+			}
+			time.Sleep(time.Second * 5)
+			batteryPowerNow, err := getBatteryPowerState()
+			if err != nil {
+				crylog.Error("getBatteryPowerState failed:", err)
+				continue
+			}
+			if batteryPower != batteryPowerNow {
+				batteryPoser = batterPowerNow
+				if batteryPower {
+					ret <- csminer.ScreenState(BATTERY_POWER)
+				} else {
+					ret <- csminer.ScreenState(AC_POWER)
+				}
 			}
 		}
 	}()
@@ -65,6 +82,29 @@ func getScreenActiveState() (bool, error) {
 		return false, nil
 	}
 	return true, nil
+}
+
+// getBatteryPowerState returns true if the machine is running on battery power.
+// Current implementation invokes "pmset -g ps"
+func getBatteryPowerState() (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(
+		ctx,
+		"pmset",
+		"-g",
+		"ps",
+	)
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		crylog.Error("Error in cmd.CombinedOutput:", err)
+		return false, err
+	}
+
+	if strings.Contains(string(b), "Battery") {
+		return true, nil
+	}
+	return false, nil
 }
 
 func main() {

@@ -18,7 +18,7 @@ func main() {
 type GnomeScreenStater struct {
 }
 
-func (s GnomeScreenStater) GetScreenStateChannel() (chan bool, error) {
+func (s GnomeScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, error) {
 	bus, err := dbus.ConnectSessionBus()
 	if err != nil {
 		crylog.Fatal("dbus connection failed")
@@ -34,7 +34,7 @@ func (s GnomeScreenStater) GetScreenStateChannel() (chan bool, error) {
 	dChan := make(chan *dbus.Message, 128)
 	bus.Eavesdrop(dChan)
 
-	ret := make(chan bool)
+	ret := make(chan csminer.ScreenState)
 
 	go func() {
 		defer bus.Close()
@@ -47,11 +47,11 @@ func (s GnomeScreenStater) GetScreenStateChannel() (chan bool, error) {
 				str := fmt.Sprintf("%v", m.Body[0])
 				if str == "true" {
 					crylog.Info("Gnome screensaver turned on")
-					ret <- true
+					ret <- csminer.ScreenState(csminer.SCREEN_ACTIVE)
 					continue
 				} else if str == "false" {
 					crylog.Info("Gnome screensaver turned off")
-					ret <- false
+					ret <- csminer.ScreenState(csminer.SCREEN_IDLE)
 					continue
 				}
 			}

@@ -35,23 +35,34 @@ var (
 	lastStatsUpdateTime time.Time
 
 	screenIdle        int32 // only mine when this is > 0
+	batteryPower      int32
 	manualMinerToggle int32
 
-	SCREEN_IDLE_POKE client.MultiClientJob
-	SCREEN_ON_POKE   client.MultiClientJob
-	PRINT_STATS_POKE client.MultiClientJob
-	ENTER_HIT_POKE   client.MultiClientJob
+	SCREEN_IDLE_POKE   client.MultiClientJob
+	SCREEN_ON_POKE     client.MultiClientJob
+	BATTERY_POWER_POKE client.MultiClientJob
+	AC_POWER_POKE      client.MultiClientJob
+	PRINT_STATS_POKE   client.MultiClientJob
+	ENTER_HIT_POKE     client.MultiClientJob
 )
 
 const (
 	HANDLED    = 1
 	USE_CACHED = 2
+
+	// Valid screen states
+	SCREEN_IDLE   = 0
+	SCREEN_ACTIVE = 1
+	BATTERY_POWER = 2
+	AC_POWER      = 3
 )
+
+type ScreenState int
 
 type ScreenStater interface {
 	// Returns a channel that produces true when state changes from screen off to screen on,
 	// and false when it changes from on to off.
-	GetScreenStateChannel() (chan bool, error)
+	GetScreenStateChannel() (chan ScreenState, error)
 }
 
 func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeHrStart int, excludeHrEnd int, startDiff int, useTLS bool) error {
@@ -65,6 +76,8 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 	seed := []byte{}
 
 	screenIdle = 1
+	batteryPower = 0
+
 	manualMinerToggle = 0
 	if saver {
 		ch, err := s.GetScreenStateChannel()
@@ -295,14 +308,21 @@ func startKeyboardScanning() {
 	}()
 }
 
-func monitorScreenSaver(ch chan bool) {
+func monitorScreenSaver(ch chan ScreenState) {
 	for state := range ch {
-		if state {
+		switch state {
+		case SCREEN_IDLE:
 			crylog.Info("Screen off")
 			kickJobDispatcher(&SCREEN_IDLE_POKE)
-		} else {
+		case SCREEN_ACTIVE:
 			crylog.Info("Screen on")
 			kickJobDispatcher(&SCREEN_ON_POKE)
+		case BATTERY_POWER:
+			crylog.Info("Battery power")
+			kickJobDispatcher(&BATTERY_POWER_POKE)
+		case AC_POWER:
+			crylog.Info("AC power")
+			kickJobDispatcher(&AC_POWER_POKE)
 		}
 	}
 }
@@ -320,6 +340,9 @@ func kickJobDispatcher(job *client.MultiClientJob) bool {
 }
 
 func miningActive(excludeHrStart, excludeHrEnd int) bool {
+	if atomic.LoadInt32(&batteryPower) > 0 {
+		return false
+	}
 	if atomic.LoadInt32(&manualMinerToggle) > 0 {
 		// keyboard override to always mine no matter what
 		return true
@@ -336,10 +359,16 @@ func miningActive(excludeHrStart, excludeHrEnd int) bool {
 }
 
 func getActivityMessage(excludeHrStart, excludeHrEnd, threads int) string {
+	battery := atomic.LoadInt32(&batteryPower) > 0
+	if battery {
+		return "PAUSED due to running on battery power"
+	}
+
 	saver := atomic.LoadInt32(&screenIdle) > 0
 	toggled := atomic.LoadInt32(&manualMinerToggle) > 0
 
 	onoff := ""
+
 	if timeExcluded(excludeHrStart, excludeHrEnd) {
 		if !toggled {
 			onoff = "PAUSED due to -exclude hour range. <enter> to mine anyway"
@@ -360,7 +389,11 @@ func getActivityMessage(excludeHrStart, excludeHrEnd, threads int) string {
 
 func handlePoke(wasMining bool, job *client.MultiClientJob, excludeHrStart, excludeHrEnd int) int {
 	var isMiningNow bool
-	if job == &SCREEN_ON_POKE {
+	if job == &BATTERY_POWER_POKE {
+		atomic.StoreInt32(&batteryPower, 1)
+	} else if job == &AC_POWER_POKE {
+		atomic.StoreInt32(&batteryPower, 0)
+	} else if job == &SCREEN_ON_POKE {
 		atomic.StoreInt32(&screenIdle, 0) // mark the screen as no longer idle
 	} else if job == &SCREEN_IDLE_POKE {
 		atomic.StoreInt32(&screenIdle, 1) // mark screen as idle
