@@ -64,8 +64,8 @@ Windows version: csminer for Windows monitors session notifications for session 
 should activate the miner whenever the screen is locked.
 
 Mac/OSX version: csminer for OSX polls the lock screen state every 10 seconds and should activate
-the miner shortly after the screen locks. Power napping should be disabled to ensure the miner
-isn't suspended while the screen is locked.
+the miner shortly after the screen locks. Confirm you have selected "prevent the computer from
+sleeping" in Energy Saver settings so the computer can mine while connected to power.
 
 Linux/Gnome version: csminer for Linux monitors Gnome screensaver events, and should activate the miner
 whenever the screen "dims".
