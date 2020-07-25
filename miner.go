@@ -6,13 +6,17 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"github.com/cryptonote-social/csminer/blockchain"
 	"github.com/cryptonote-social/csminer/crylog"
 	"github.com/cryptonote-social/csminer/rx"
 	"github.com/cryptonote-social/csminer/stratum/client"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,6 +59,8 @@ const (
 	SCREEN_ACTIVE = 1
 	BATTERY_POWER = 2
 	AC_POWER      = 3
+
+	POOL_PSOLO_MARGIN = .02
 )
 
 type ScreenState int
@@ -91,7 +97,7 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 		}
 	}
 
-	startKeyboardScanning()
+	startKeyboardScanning(uname)
 
 	wasJustMining := false
 
@@ -141,7 +147,7 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 			} else {
 				cachedJob = job
 			}
-			crylog.Info("Got new job:", job.JobID, "w/ difficulty:", blockchain.TargetToDifficulty(job.Target))
+			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 
 			// Stop existing mining, if any, and wait for mining threads to finish.
 			atomic.StoreUint32(&stopper, 1)
@@ -198,6 +204,7 @@ func resetRecentStats() {
 }
 
 func printStats(isMining bool) {
+	crylog.Info("=====================================")
 	crylog.Info("Shares    [accepted:rejected]:", sharesAccepted, ":", sharesRejected)
 	crylog.Info("Hashes          [client:pool]:", clientSideHashes, ":", poolSideHashes)
 	var elapsed1 float64
@@ -214,6 +221,7 @@ func printStats(isMining bool) {
 			strconv.FormatFloat(float64(clientSideHashes)/elapsed1, 'f', 2, 64),
 			strconv.FormatFloat(float64(recentHashes)/elapsed2, 'f', 2, 64))
 	}
+	crylog.Info("=====================================")
 }
 
 func goMine(wg *sync.WaitGroup, job client.MultiClientJob, thread int) {
@@ -281,31 +289,106 @@ func goMine(wg *sync.WaitGroup, job client.MultiClientJob, thread int) {
 	}
 }
 
-func startKeyboardScanning() {
+func startKeyboardScanning(uname string) {
 	scanner := bufio.NewScanner(os.Stdin)
 	go func() {
 		for scanner.Scan() {
 			b := scanner.Text()
-			if b == "h" || b == "s" {
+			switch b {
+			case "h", "s":
 				kickJobDispatcher(&PRINT_STATS_POKE)
-			}
-			if b == "q" {
+			case "q":
 				crylog.Info("quitting due to q key command")
 				os.Exit(0)
-			}
-			if b == "?" {
+			case "?", "help":
 				crylog.Info("Keyboard commands:")
-				crylog.Info("   s: print stats")
+				crylog.Info("   s: print client-side csminer stats")
+				crylog.Info("   p: print pool-side user stats")
 				crylog.Info("   q: quit")
 				crylog.Info("   <enter>: override a paused miner")
+			case "p":
+				err := printPoolSideUserStats(uname)
+				if err != nil {
+					crylog.Error("Failed to get pool side user stats:", err)
+				}
 			}
 			if len(b) == 0 {
 				kickJobDispatcher(&ENTER_HIT_POKE)
 			}
-			//crylog.Info("Scanned:", string(b), len(b))
 		}
 		crylog.Error("Scanning terminated")
 	}()
+}
+
+func printPoolSideUserStats(uname string) error {
+	uri := "https://cryptonote.social/json/WorkerStats"
+	sbody := "{\"Coin\": \"xmr\", \"Worker\": \"" + uname + "\"}\n"
+	body := strings.NewReader(sbody)
+	req, err := http.NewRequest("POST", uri, body)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	//crylog.Info("Pool-side user stats:", string(b))
+
+	s := &struct {
+		Code             int
+		CycleProgress    float64
+		Hashrate1        int64
+		Hashrate24       int64
+		LifetimeHashes   int64
+		LifetimeBestHash int64
+		Donate           float64
+		AmountPaid       float64
+		AmountOwed       float64
+	}{}
+	err = json.Unmarshal(b, &s)
+	if err != nil {
+		return err
+	}
+
+	s.CycleProgress /= (1.0 + POOL_PSOLO_MARGIN) // TODO: have server provide margin
+
+	crylog.Info("Pool side user stats:")
+	crylog.Info("=====================================")
+	crylog.Info("User            :", uname)
+	crylog.Info("Progress        :", strconv.FormatFloat(s.CycleProgress*100.0, 'f', 5, 64)+"%")
+	crylog.Info("1 Hr Hashrate   :", s.Hashrate1)
+	crylog.Info("24 Hr Hashrate  :", s.Hashrate24)
+	crylog.Info("Lifetime Hashes :", prettyInt(s.LifetimeHashes))
+	crylog.Info("Paid            :", strconv.FormatFloat(s.AmountPaid, 'f', 12, 64), "$XMR")
+	if s.AmountOwed > 0.0 {
+		crylog.Info("Amount Owed     :", strconv.FormatFloat(s.AmountOwed, 'f', 12, 64), "$XMR")
+	}
+	crylog.Info("=====================================")
+
+	return nil
+}
+
+func prettyInt(i int64) string {
+	s := strconv.Itoa(int(i))
+	out := []byte{}
+	count := 0
+	for i := len(s) - 1; i >= 0; i-- {
+		if count == 3 {
+			out = append(out, ',')
+			count = 0
+		}
+		out = append(out, s[i])
+		count++
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return string(out)
 }
 
 func monitorScreenSaver(ch chan ScreenState) {
@@ -373,16 +456,16 @@ func getActivityMessage(excludeHrStart, excludeHrEnd, threads int) string {
 		if !toggled {
 			onoff = "PAUSED due to -exclude hour range. <enter> to mine anyway"
 		} else {
-			onoff = "ACTIVE due to keyboard override. <enter> to undo override"
+			onoff = "ACTIVE (threads=" + strconv.Itoa(threads) + ") due to keyboard override. <enter> to undo override"
 		}
 	} else if !saver {
 		if !toggled {
 			onoff = "PAUSED until screen lock. <enter> to mine anyway"
 		} else {
-			onoff = "ACTIVE due to keyboard override. <enter> to undo override"
+			onoff = "ACTIVE (threads=" + strconv.Itoa(threads) + ") due to keyboard override. <enter> to undo override"
 		}
 	} else {
-		onoff = "ACTIVE, threads=" + strconv.Itoa(threads)
+		onoff = "ACTIVE (threads=" + strconv.Itoa(threads) + ")"
 	}
 	return onoff
 }
