@@ -303,11 +303,11 @@ func startKeyboardScanning(uname string) {
 			case "?", "help":
 				crylog.Info("Keyboard commands:")
 				crylog.Info("   s: print client-side csminer stats")
-				crylog.Info("   p: print pool-side user stats")
+				crylog.Info("   p: print pool-side stats")
 				crylog.Info("   q: quit")
 				crylog.Info("   <enter>: override a paused miner")
 			case "p":
-				err := printPoolSideUserStats(uname)
+				err := printPoolSideStats(uname)
 				if err != nil {
 					crylog.Error("Failed to get pool side user stats:", err)
 				}
@@ -320,15 +320,14 @@ func startKeyboardScanning(uname string) {
 	}()
 }
 
-func printPoolSideUserStats(uname string) error {
+func printPoolSideStats(uname string) error {
+	c := &http.Client{
+		Timeout: 15 * time.Second,
+	}
 	uri := "https://cryptonote.social/json/WorkerStats"
 	sbody := "{\"Coin\": \"xmr\", \"Worker\": \"" + uname + "\"}\n"
 	body := strings.NewReader(sbody)
-	req, err := http.NewRequest("POST", uri, body)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.Post(uri, "", body)
 	if err != nil {
 		return err
 	}
@@ -355,10 +354,62 @@ func printPoolSideUserStats(uname string) error {
 		return err
 	}
 
-	s.CycleProgress /= (1.0 + POOL_PSOLO_MARGIN) // TODO: have server provide margin
+	// Now get pool stats
+	uri = "https://cryptonote.social/json/PoolStats"
+	sbody = "{\"Coin\": \"xmr\"}\n"
+	body = strings.NewReader(sbody)
+	resp2, err := http.DefaultClient.Post(uri, "", body)
+	if err != nil {
+		return err
+	}
+	defer resp2.Body.Close()
+	b, err = ioutil.ReadAll(resp2.Body)
+	if err != nil {
+		return err
+	}
+	ps := &struct {
+		Code               int
+		NextBlockReward    float64
+		Margin             float64
+		PPROPProgress      float64
+		PPROPHashrate      int64
+		NetworkDifficulty  int64
+		SmoothedDifficulty int64 // Network difficulty averaged over the past hour
+	}{}
+	err = json.Unmarshal(b, &ps)
+	if err != nil {
+		return err
+	}
 
-	crylog.Info("Pool side user stats:")
-	crylog.Info("=====================================")
+	s.CycleProgress /= (1.0 + ps.Margin)
+
+	diff := float64(ps.SmoothedDifficulty)
+	if diff == 0.0 {
+		diff = float64(ps.NetworkDifficulty)
+	}
+	hr := float64(ps.PPROPHashrate)
+	var ttreward string
+	if hr > 0.0 {
+		ttr := (diff*(1.0+ps.Margin) - (ps.PPROPProgress * diff)) / hr / 3600.0 / 24.0
+		if ttr > 0.0 {
+			if ttr < 1.0 {
+				ttr *= 24.0
+				if ttr < 1.0 {
+					ttr *= 60.0
+					ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " min"
+				} else {
+					ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " hrs"
+				}
+			} else {
+				ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " days"
+			}
+		} else if ttr < 0.0 {
+			ttreward = "overdue"
+		}
+	}
+
+	crylog.Info("Pool side stats:")
+	crylog.Info("==========================================")
 	crylog.Info("User            :", uname)
 	crylog.Info("Progress        :", strconv.FormatFloat(s.CycleProgress*100.0, 'f', 5, 64)+"%")
 	crylog.Info("1 Hr Hashrate   :", s.Hashrate1)
@@ -368,7 +419,16 @@ func printPoolSideUserStats(uname string) error {
 	if s.AmountOwed > 0.0 {
 		crylog.Info("Amount Owed     :", strconv.FormatFloat(s.AmountOwed, 'f', 12, 64), "$XMR")
 	}
-	crylog.Info("=====================================")
+	/*crylog.Info("PPROP Progress         :", strconv.FormatFloat(ps.PPROPProgress*100.0, 'f', 5, 64)+"%")*/
+	crylog.Info("")
+	crylog.Info("Estimated stats :")
+	if len(ttreward) > 0 {
+		crylog.Info("  Time to next reward:", ttreward)
+	}
+	if ps.NextBlockReward > 0.0 && s.CycleProgress > 0.0 {
+		crylog.Info("  Reward accumulated :", strconv.FormatFloat(ps.NextBlockReward*s.CycleProgress, 'f', 12, 64), "$XMR")
+	}
+	crylog.Info("==========================================")
 
 	return nil
 }
