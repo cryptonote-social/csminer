@@ -36,9 +36,9 @@ func (s OSXScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, erro
 			if screenActiveNow != screenActive {
 				screenActive = screenActiveNow
 				if screenActive {
-					ret <- csminer.ScreenState(SCREEN_ACTIVE)
+					ret <- csminer.ScreenState(csminer.SCREEN_ACTIVE)
 				} else {
-					ret <- csminer.ScreenState(SCREEN_IDLE)
+					ret <- csminer.ScreenState(csminer.SCREEN_IDLE)
 				}
 			}
 			time.Sleep(time.Second * 5)
@@ -48,11 +48,11 @@ func (s OSXScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, erro
 				continue
 			}
 			if batteryPower != batteryPowerNow {
-				batteryPoser = batterPowerNow
+				batteryPower = batteryPowerNow
 				if batteryPower {
-					ret <- csminer.ScreenState(BATTERY_POWER)
+					ret <- csminer.ScreenState(csminer.BATTERY_POWER)
 				} else {
-					ret <- csminer.ScreenState(AC_POWER)
+					ret <- csminer.ScreenState(csminer.AC_POWER)
 				}
 			}
 		}
@@ -63,7 +63,7 @@ func (s OSXScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, erro
 // getScreenActiveState gets the OSX lockscreen status. Current implementation
 // invokes a python script; this should be improved.
 func getScreenActiveState() (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(
 		ctx,
@@ -87,7 +87,7 @@ func getScreenActiveState() (bool, error) {
 // getBatteryPowerState returns true if the machine is running on battery power.
 // Current implementation invokes "pmset -g ps"
 func getBatteryPowerState() (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(
 		ctx,
@@ -100,8 +100,7 @@ func getBatteryPowerState() (bool, error) {
 		crylog.Error("Error in cmd.CombinedOutput:", err)
 		return false, err
 	}
-
-	if strings.Contains(string(b), "Battery") {
+	if strings.Contains(string(b), "Battery Power") {
 		return true, nil
 	}
 	return false, nil
