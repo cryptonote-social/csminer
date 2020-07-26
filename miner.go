@@ -59,8 +59,6 @@ const (
 	SCREEN_ACTIVE = 1
 	BATTERY_POWER = 2
 	AC_POWER      = 3
-
-	POOL_PSOLO_MARGIN = .02
 )
 
 type ScreenState int
