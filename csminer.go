@@ -12,7 +12,7 @@ import (
 
 const (
 	APPLICATION_NAME = "cryptonote.social Monero miner"
-	VERSION_STRING   = "0.0.8"
+	VERSION_STRING   = "0.1.0"
 	STATS_WEBPAGE    = "https://cryptonote.social/xmr"
 	DONATE_USERNAME  = "donate-getmonero-org"
 
@@ -29,7 +29,7 @@ var (
 	startDiff = flag.Int("start_diff", 0, "a starting difficulty value for the pool")
 )
 
-func MultiMain(s ScreenStater) {
+func MultiMain(s ScreenStater, agent string) {
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "==== %s %s ====\n", APPLICATION_NAME, VERSION_STRING)
 		fmt.Fprint(flag.CommandLine.Output(),
@@ -102,7 +102,7 @@ func MultiMain(s ScreenStater) {
 	crylog.Info("Miner username:", *uname)
 	crylog.Info("Threads:", *threads)
 
-	if Mine(s, *threads, *uname, *rigid, *saver, hr1, hr2, *startDiff, *tls) != nil {
+	if Mine(s, *threads, *uname, *rigid, *saver, hr1, hr2, *startDiff, *tls, agent) != nil {
 		crylog.Error("Miner failed:", err)
 	}
 }

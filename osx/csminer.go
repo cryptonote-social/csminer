@@ -107,5 +107,5 @@ func getBatteryPowerState() (bool, error) {
 }
 
 func main() {
-	csminer.MultiMain(OSXScreenStater{})
+	csminer.MultiMain(OSXScreenStater{}, csminer.VERSION_STRING+" (osx)")
 }

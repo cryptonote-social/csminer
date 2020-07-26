@@ -50,5 +50,5 @@ func GetScreenStateChannel() (chan bool, error) {
 }
 
 func main() {
-	csminer.MultiMain(WinScreenStater{})
+	csminer.MultiMain(WinScreenStater{}, csminer.VERSION_STRING+" (win)")
 }

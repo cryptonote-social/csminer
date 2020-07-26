@@ -55,14 +55,16 @@ type MultiClientJob struct {
 
 type Client struct {
 	address         string
+	agent           string
 	conn            net.Conn
 	JobChannel      chan *MultiClientJob
 	responseChannel chan *SubmitWorkResponse
 }
 
-func NewClient(address string) *Client {
+func NewClient(address string, agent string) *Client {
 	return &Client{
 		address: address,
+		agent:   agent,
 	}
 }
 
@@ -91,10 +93,12 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 			Login string `json:"login"`
 			Pass  string `json:"pass"`
 			RigID string `json:"rigid"`
+			Agent string
 		}{
 			Login: uname,
 			Pass:  pw,
 			RigID: rigid,
+			Agent: cl.agent,
 		},
 	}
 

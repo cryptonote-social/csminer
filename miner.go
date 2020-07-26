@@ -71,11 +71,11 @@ type ScreenStater interface {
 	GetScreenStateChannel() (chan ScreenState, error)
 }
 
-func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeHrStart int, excludeHrEnd int, startDiff int, useTLS bool) error {
+func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeHrStart int, excludeHrEnd int, startDiff int, useTLS bool, agent string) error {
 	if useTLS {
-		cl = client.NewClient("cryptonote.social:5556")
+		cl = client.NewClient("cryptonote.social:5556", agent)
 	} else {
-		cl = client.NewClient("cryptonote.social:5555")
+		cl = client.NewClient("cryptonote.social:5555", agent)
 	}
 	startTime = time.Now()
 	lastStatsResetTime = time.Now()

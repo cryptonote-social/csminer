@@ -1,4 +1,4 @@
-csminer v0.0.8 (Windows version)
+csminer v0.1.0 (Windows version)
 
 SYNOPSIS
 
