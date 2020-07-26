@@ -47,11 +47,11 @@ func (s GnomeScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 				str := fmt.Sprintf("%v", m.Body[0])
 				if str == "true" {
 					crylog.Info("Gnome screensaver turned on")
-					ret <- csminer.ScreenState(csminer.SCREEN_ACTIVE)
+					ret <- csminer.ScreenState(csminer.SCREEN_IDLE)
 					continue
 				} else if str == "false" {
 					crylog.Info("Gnome screensaver turned off")
-					ret <- csminer.ScreenState(csminer.SCREEN_IDLE)
+					ret <- csminer.ScreenState(csminer.SCREEN_ACTIVE)
 					continue
 				}
 			}
