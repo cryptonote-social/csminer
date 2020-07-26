@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	csminer.MultiMain(GnomeScreenStater{}, csminer.VERSION_STRING+" (linux)")
+	csminer.MultiMain(GnomeScreenStater{}, "csminer "+csminer.VERSION_STRING+" (linux)")
 }
 
 type GnomeScreenStater struct {

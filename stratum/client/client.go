@@ -93,7 +93,7 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 			Login string `json:"login"`
 			Pass  string `json:"pass"`
 			RigID string `json:"rigid"`
-			Agent string
+			Agent string `json:"agent"`
 		}{
 			Login: uname,
 			Pass:  pw,
