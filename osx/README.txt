@@ -44,6 +44,9 @@ Tips:
 In Mac Energy Settings, click Power Adapter, and if present, enable the option "Prevent computer
 from sleeping automatically when the display is off".
 
+For best performance, if csminer reports it's unable to allocate hugepages, try restarting your
+machine and starting csminer before running anything else.
+
 
 ADDITIONAL DETAILS
 
@@ -62,9 +65,7 @@ username and you can login with the username alone, e.g.:
 Implementation
 
 csminer utilizes the RandomX implementation from https://github.com/tevador/RandomX and will
-perform similarly to other mining software based on this library such as xmrig. It will attempt to
-use hugepages if available. If hugepages is enabled but the miner reports it's unable to allocate
-them, try restarting your machine and starting csminer before running anything else.
+perform similarly to other mining software based on this library such as xmrig. 
 
 Feedback & Bug Reports
 
