@@ -97,6 +97,7 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 		}
 	}
 
+	printKeyboardCommands()
 	startKeyboardScanning(uname)
 
 	wasJustMining := false
@@ -218,7 +219,7 @@ func printStats(isMining bool) {
 	elapsed2 := lastStatsUpdateTime.Sub(lastStatsResetTime).Seconds()
 	if elapsed1 > 0.0 && elapsed2 > 0.0 {
 		crylog.Info("Hashes/sec [inception:recent]:",
-			strconv.FormatFloat(float64(clientSideHashes)/elapsed1, 'f', 2, 64),
+			strconv.FormatFloat(float64(clientSideHashes)/elapsed1, 'f', 2, 64), ":",
 			strconv.FormatFloat(float64(recentHashes)/elapsed2, 'f', 2, 64))
 	}
 	crylog.Info("=====================================")
@@ -289,6 +290,14 @@ func goMine(wg *sync.WaitGroup, job client.MultiClientJob, thread int) {
 	}
 }
 
+func printKeyboardCommands() {
+	crylog.Info("Keyboard commands:")
+	crylog.Info("   s: print miner stats")
+	crylog.Info("   p: print pool-side user stats")
+	crylog.Info("   q: quit")
+	crylog.Info("   <enter>: override a paused miner")
+}
+
 func startKeyboardScanning(uname string) {
 	scanner := bufio.NewScanner(os.Stdin)
 	go func() {
@@ -301,11 +310,7 @@ func startKeyboardScanning(uname string) {
 				crylog.Info("quitting due to q key command")
 				os.Exit(0)
 			case "?", "help":
-				crylog.Info("Keyboard commands:")
-				crylog.Info("   s: print client-side csminer stats")
-				crylog.Info("   p: print pool-side stats")
-				crylog.Info("   q: quit")
-				crylog.Info("   <enter>: override a paused miner")
+				printKeyboardCommands()
 			case "p":
 				err := printPoolSideStats(uname)
 				if err != nil {
@@ -336,7 +341,6 @@ func printPoolSideStats(uname string) error {
 	if err != nil {
 		return err
 	}
-	//crylog.Info("Pool-side user stats:", string(b))
 
 	s := &struct {
 		Code             int
@@ -408,7 +412,6 @@ func printPoolSideStats(uname string) error {
 		}
 	}
 
-	crylog.Info("Pool side stats:")
 	crylog.Info("==========================================")
 	crylog.Info("User            :", uname)
 	crylog.Info("Progress        :", strconv.FormatFloat(s.CycleProgress*100.0, 'f', 5, 64)+"%")
