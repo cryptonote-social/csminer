@@ -456,12 +456,14 @@ func prettyInt(i int64) string {
 
 func monitorScreenSaver(ch chan ScreenState) {
 	for state := range ch {
+		// TODO: kickJobDispatcher will fail if the stratum client is inactive, which
+		// will potentially cause us to miss handling some events.
 		switch state {
 		case SCREEN_IDLE:
-			crylog.Info("Screen off")
+			crylog.Info("Screen idle")
 			kickJobDispatcher(&SCREEN_IDLE_POKE)
 		case SCREEN_ACTIVE:
-			crylog.Info("Screen on")
+			crylog.Info("Screen active")
 			kickJobDispatcher(&SCREEN_ON_POKE)
 		case BATTERY_POWER:
 			crylog.Info("Battery power")
