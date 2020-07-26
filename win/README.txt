@@ -1,15 +1,11 @@
-csminer v0.0.8
+csminer v0.0.8 (Windows version)
 
 SYNOPSIS
 
 csminer from https://cryptonote.social is an easy-to-use CPU miner for Monero intended to provide
 "set it and forget it" mining for your existing laptop and desktop machines. By default, csminer
-mines with a single thread, and only when your screen is locked. It can be configured to always
-mine or mine with more threads using the options described below. If you don't specify a username,
-csminer will mine on behalf of the Monero project (https://donate.getmonero.org) with earnings
-going directly to its wallet:
-
-888tNkZrPN6JsEgekjMnABU4TBzc2Dt29EPAvkRxbANsAnjyPbb3iQ1YBRk1UXcdRsiKc9dhwMVgN5S9cQUiyoogDavup3H
+mines with a single thread, and only when Gnome dims the screen. It can be configured to always
+mine or mine with more threads using the options described below.
 
 
 USAGE
@@ -27,15 +23,30 @@ All arguments are optional:
         11:00am and 4:00pm. This can be used, for example, to pause mining during times of high
         machine usage or high electricity rates.
   -threads <int>
-    	number of threads (default 1)
+        number of threads (default 1)
   -rigid <string>
     	your rig id (default "csminer")
   -tls <bool>
-       whether to use TLS when connecting to the pool (default false)
+        whether to use TLS when connecting to the pool (default false)
   -start_diff <int>
         starting difficulty value for the pool
 
-Monitor your miner progress at: https://cryptonote.social/xmr
+Monitor your miner progress at: https://cryptonote.social/xmr, or type <p> + <enter> to display
+pool stats in the command shell.
+
+Tips:
+
+For best performance, if csminer reports it's unable to allocate hugepages, try restarting your
+machine and starting csminer before running anything else.
+
+Consider putting a shortcut to csminer in your Windows Startup folder (see:
+https://helpdeskgeek.com/windows-10/how-to-access-the-windows-10-startup-folder/) so that it starts
+automatically.
+
+If you don't specify a username, csminer will mine on behalf of the Monero project
+(https://donate.getmonero.org) with earnings going directly to its wallet:
+
+888tNkZrPN6JsEgekjMnABU4TBzc2Dt29EPAvkRxbANsAnjyPbb3iQ1YBRk1UXcdRsiKc9dhwMVgN5S9cQUiyoogDavup3H
 
 
 ADDITIONAL DETAILS
