@@ -55,7 +55,7 @@ func (s GnomeScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 					continue
 				}
 			}
-			crylog.Info("ignoring dbus message:", m)
+			//crylog.Info("ignoring dbus message:", m)
 		}
 		crylog.Error("dbus listener goroutine exiting")
 	}()
