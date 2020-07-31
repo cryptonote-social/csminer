@@ -52,8 +52,10 @@ func MultiMain(s ScreenStater, agent string) {
     	your rig id (default "csminer")
   -tls <bool>
        whether to use TLS when connecting to the pool (default false)
-  -start_diff <int>
-        starting difficulty value for the pool
+  -config <string>
+        advanced pool config option string, for specifying starting diff, donation percentage,
+        email address for notifications, and more. See "advanced configuration options" under Get
+        Started on the pool site for details.
 `)
 		fmt.Fprintf(flag.CommandLine.Output(), "\nMonitor your miner progress at: %s\n", STATS_WEBPAGE)
 		fmt.Fprint(flag.CommandLine.Output(), "Send feedback to: cryptonote.social@gmail.com\n")
