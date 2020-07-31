@@ -101,31 +101,7 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 	wasJustMining := false
 
 	for {
-		clMutex.Lock()
-		clientAlive = false
-		clMutex.Unlock()
-		sleepSec := 3 * time.Second
-		for {
-			if startDiff > 0 {
-				if len(config) > 0 {
-					config += ";"
-				}
-				config += "start_diff=" + strconv.Itoa(startDiff)
-			}
-			err := cl.Connect(uname, config, rigid, useTLS)
-			if err != nil {
-				crylog.Warn("Client failed to connect:", err)
-				time.Sleep(sleepSec)
-				sleepSec += time.Second
-				continue
-			}
-			break
-		}
-		clMutex.Lock()
-		clientAlive = true
-		clMutex.Unlock()
-
-		crylog.Info("Connected")
+		connectClient(cl, uname, rigid, startDiff, config, useTLS)
 		var cachedJob *client.MultiClientJob
 		for {
 			onoff := getActivityMessage(excludeHrStart, excludeHrEnd, threads)
@@ -189,6 +165,47 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 			}
 		}
 	}
+}
+
+// connectClient will try to connect to the stratum server and won't return until successful. It will
+// also start job dispatching loop.
+func connectClient(cl *client.Client, uname, rigid string, startDiff int, config string, useTLS bool) {
+	clMutex.Lock()
+	clientAlive = false
+	clMutex.Unlock()
+	sleepSec := 3 * time.Second
+	for {
+		if startDiff > 0 {
+			if len(config) > 0 {
+				config += ";"
+			}
+			config += "start_diff=" + strconv.Itoa(startDiff)
+		}
+		err := cl.Connect(uname, config, rigid, useTLS)
+		if err != nil {
+			crylog.Warn("Client failed to connect:", err)
+			time.Sleep(sleepSec)
+			sleepSec += time.Second
+			continue
+		}
+		break
+	}
+	clMutex.Lock()
+	clientAlive = true
+	clMutex.Unlock()
+
+	go func() {
+		err := cl.DispatchJobs()
+		if err != nil {
+			crylog.Error("Job dispatcher exitted with error:", err)
+		}
+		clMutex.Lock()
+		clientAlive = false
+		clMutex.Unlock()
+		cl.Close()
+	}()
+
+	crylog.Info("Connected")
 }
 
 func timeExcluded(startHr, endHr int) bool {
