@@ -1,4 +1,4 @@
-csminer v0.1.0 (OSX version)
+csminer v0.1.1 (OSX version)
 
 SYNOPSIS
 
@@ -27,10 +27,10 @@ All arguments are optional:
         number of threads (default 1)
   -rigid <string>
         your rig id (default "csminer")
-  -tls <bool>
-        whether to use TLS when connecting to the pool (default false)
-  -start_diff <int>
-        starting difficulty value for the pool
+  -config <string>
+        advanced pool config option string, for specifying starting diff, donation percentage,
+        email address for notifications, and more. See "advanced configuration options" under Get
+        Started on the pool site for details.
 
 Monitor your miner progress at: https://cryptonote.social/xmr, or type <p> + <enter> to display
 pool stats in the command shell.

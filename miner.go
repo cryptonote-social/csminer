@@ -69,7 +69,7 @@ type ScreenStater interface {
 	GetScreenStateChannel() (chan ScreenState, error)
 }
 
-func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeHrStart int, excludeHrEnd int, startDiff int, useTLS bool, agent string) error {
+func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeHrStart int, excludeHrEnd int, startDiff int, useTLS bool, config string, agent string) error {
 	if useTLS {
 		cl = client.NewClient("cryptonote.social:5556", agent)
 	} else {
@@ -106,11 +106,13 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 		clMutex.Unlock()
 		sleepSec := 3 * time.Second
 		for {
-			sd := ""
 			if startDiff > 0 {
-				sd = "start_diff=" + strconv.Itoa(startDiff)
+				if len(config) > 0 {
+					config += ";"
+				}
+				config += "start_diff=" + strconv.Itoa(startDiff)
 			}
-			err := cl.Connect(uname, sd, rigid, useTLS)
+			err := cl.Connect(uname, config, rigid, useTLS)
 			if err != nil {
 				crylog.Warn("Client failed to connect:", err)
 				time.Sleep(sleepSec)

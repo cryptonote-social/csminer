@@ -21,7 +21,7 @@ type GnomeScreenStater struct {
 func (s GnomeScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, error) {
 	bus, err := dbus.ConnectSessionBus()
 	if err != nil {
-		crylog.Fatal("dbus connection failed")
+		crylog.Error("dbus connection failed")
 		return nil, err
 	}
 
