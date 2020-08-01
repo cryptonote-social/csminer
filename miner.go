@@ -341,7 +341,12 @@ func startKeyboardScanning(uname string) {
 			b := scanner.Text()
 			switch b {
 			case "h", "s":
-				pokeJobDispatcher(PRINT_STATS_POKE)
+				pokeSuccess := pokeJobDispatcher(PRINT_STATS_POKE)
+				if !pokeSuccess {
+					// stratum client is probably dead due to bad internet connection, but it should
+					// still be safe to print stats.
+					printStats(false)
+				}
 			case "q":
 				crylog.Info("quitting due to q key command")
 				os.Exit(0)
@@ -354,12 +359,14 @@ func startKeyboardScanning(uname string) {
 				}
 			}
 			if len(b) == 0 {
-				if atomic.LoadInt32(&manualMinerToggle) == 0 {
-					atomic.StoreInt32(&manualMinerToggle, 1)
-				} else {
-					atomic.StoreInt32(&manualMinerToggle, 0)
+				pokeSuccess := pokeJobDispatcher(ENTER_HIT_POKE)
+				if pokeSuccess {
+					if atomic.LoadInt32(&manualMinerToggle) == 0 {
+						atomic.StoreInt32(&manualMinerToggle, 1)
+					} else {
+						atomic.StoreInt32(&manualMinerToggle, 0)
+					}
 				}
-				pokeJobDispatcher(ENTER_HIT_POKE)
 			}
 		}
 		crylog.Error("Scanning terminated")
