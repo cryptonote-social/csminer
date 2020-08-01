@@ -359,6 +359,11 @@ func startKeyboardScanning(uname string) {
 				}
 			}
 			if len(b) == 0 {
+				// Ignore enter-hit mining override if on battery power
+				if atomic.LoadInt32(&batteryPower) > 0 {
+					crylog.Warn("on battery power, keyboard overrides ignored")
+					continue
+				}
 				pokeSuccess := pokeJobDispatcher(ENTER_HIT_POKE)
 				if pokeSuccess {
 					if atomic.LoadInt32(&manualMinerToggle) == 0 {
