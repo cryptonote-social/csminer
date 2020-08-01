@@ -112,6 +112,7 @@ func Mine(
 outer:
 	for {
 		jobChannel := connectClient(cl, uname, rigid, startDiff, config, useTLS)
+		resetRecentStats()
 		var job *client.MultiClientJob
 		for {
 			onoff := getActivityMessage(excludeHrStart, excludeHrEnd, threads)
