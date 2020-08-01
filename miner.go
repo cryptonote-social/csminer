@@ -7,10 +7,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/cryptonote-social/csminer/blockchain"
-	"github.com/cryptonote-social/csminer/crylog"
-	"github.com/cryptonote-social/csminer/rx"
-	"github.com/cryptonote-social/csminer/stratum/client"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -20,34 +16,36 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/cryptonote-social/csminer/blockchain"
+	"github.com/cryptonote-social/csminer/crylog"
+	"github.com/cryptonote-social/csminer/rx"
+	"github.com/cryptonote-social/csminer/stratum/client"
 )
 
 var (
 	cl          *client.Client
 	clMutex     sync.Mutex
-	clientAlive bool
-	wg          sync.WaitGroup
-	stopper     uint32 // atomic int used to signal to rxlib to stop mining
+	clientAlive bool // true when the stratum client is connected and healthy
 
+	stopper uint32         // atomic int used to signal rxlib worker threads to stop mining
+	wg      sync.WaitGroup // used to wait for stopped worker threads to finish
+
+	pokeChannel chan int // used to send messages to main job loop to take various actions
+
+	// miner client stats
 	sharesAccepted                 int64
 	sharesRejected                 int64
 	poolSideHashes                 int64
 	clientSideHashes, recentHashes int64
 
-	startTime           time.Time
+	startTime           time.Time // when the miner started up
 	lastStatsResetTime  time.Time
 	lastStatsUpdateTime time.Time
 
 	screenIdle        int32 // only mine when this is > 0
-	batteryPower      int32
-	manualMinerToggle int32
-
-	SCREEN_IDLE_POKE   client.MultiClientJob
-	SCREEN_ON_POKE     client.MultiClientJob
-	BATTERY_POWER_POKE client.MultiClientJob
-	AC_POWER_POKE      client.MultiClientJob
-	PRINT_STATS_POKE   client.MultiClientJob
-	ENTER_HIT_POKE     client.MultiClientJob
+	batteryPower      int32 // only mine when this is > 0
+	manualMinerToggle int32 // whether paused mining has been manually overridden
 )
 
 const (
@@ -59,6 +57,13 @@ const (
 	SCREEN_ACTIVE = 1
 	BATTERY_POWER = 2
 	AC_POWER      = 3
+
+	SCREEN_IDLE_POKE   = 0
+	SCREEN_ON_POKE     = 1
+	BATTERY_POWER_POKE = 2
+	AC_POWER_POKE      = 3
+	PRINT_STATS_POKE   = 4
+	ENTER_HIT_POKE     = 5
 )
 
 type ScreenState int
@@ -69,7 +74,10 @@ type ScreenStater interface {
 	GetScreenStateChannel() (chan ScreenState, error)
 }
 
-func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeHrStart int, excludeHrEnd int, startDiff int, useTLS bool, config string, agent string) error {
+func Mine(
+	s ScreenStater, threads int, uname, rigid string, saver bool,
+	excludeHrStart int, excludeHrEnd int, startDiff int,
+	useTLS bool, config string, agent string) error {
 	if useTLS {
 		cl = client.NewClient("cryptonote.social:5556", agent)
 	} else {
@@ -99,30 +107,34 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 	startKeyboardScanning(uname)
 
 	wasJustMining := false
+	pokeChannel = make(chan int)
 
 	for {
-		connectClient(cl, uname, rigid, startDiff, config, useTLS)
-		var cachedJob *client.MultiClientJob
+		jobChannel := connectClient(cl, uname, rigid, startDiff, config, useTLS)
+		var job *client.MultiClientJob
 		for {
 			onoff := getActivityMessage(excludeHrStart, excludeHrEnd, threads)
 			crylog.Info("[mining=" + onoff + "]")
-			job := <-cl.JobChannel
-			if job == nil {
-				crylog.Warn("client died")
-				time.Sleep(3 * time.Second)
-				break
-			}
-			pokeRes := handlePoke(wasJustMining, job, excludeHrStart, excludeHrEnd)
-			if pokeRes == HANDLED {
-				continue
-			}
-			if pokeRes == USE_CACHED {
-				if cachedJob == nil {
+			select {
+			case poke := <-pokeChannel:
+				pokeRes := handlePoke(wasJustMining, poke, excludeHrStart, excludeHrEnd)
+				switch pokeRes {
+				case HANDLED:
+					continue
+				case USE_CACHED:
+					if job == nil {
+						crylog.Warn("no job to work on")
+						continue
+					}
+				default:
+					crylog.Error("mystery poke:", pokeRes)
 					continue
 				}
-				job = cachedJob
-			} else {
-				cachedJob = job
+			case job = <-jobChannel:
+				if job == nil {
+					crylog.Warn("stratum client died, reconnecting")
+					break
+				}
 			}
 			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 
@@ -167,13 +179,14 @@ func Mine(s ScreenStater, threads int, uname, rigid string, saver bool, excludeH
 	}
 }
 
-// connectClient will try to connect to the stratum server and won't return until successful. It will
-// also start job dispatching loop.
-func connectClient(cl *client.Client, uname, rigid string, startDiff int, config string, useTLS bool) {
+// connectClient will try to establish the connection to the stratum server and won't return until
+// successful. It will also start the job dispatching loop once connected. clientAlive will be true
+// upon return.
+func connectClient(cl *client.Client, uname, rigid string, startDiff int, config string, useTLS bool) chan *client.MultiClientJob {
 	clMutex.Lock()
 	clientAlive = false
 	clMutex.Unlock()
-	sleepSec := 3 * time.Second
+	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
 		if startDiff > 0 {
 			if len(config) > 0 {
@@ -206,6 +219,7 @@ func connectClient(cl *client.Client, uname, rigid string, startDiff int, config
 	}()
 
 	crylog.Info("Connected")
+	return cl.JobChannel
 }
 
 func timeExcluded(startHr, endHr int) bool {
@@ -251,13 +265,10 @@ func goMine(wg *sync.WaitGroup, job client.MultiClientJob, thread int) {
 		return
 	}
 
-	//crylog.Info("goMine jobid:", job.JobID)
-
 	hash := make([]byte, 32)
 	nonce := make([]byte, 4)
 
 	for {
-		//crylog.Info("Hashing", diffTarget, thread)
 		res := rx.HashUntil(input, uint64(diffTarget), thread, hash, nonce, &stopper)
 		lastStatsUpdateTime = time.Now()
 		if res <= 0 {
@@ -322,7 +333,7 @@ func startKeyboardScanning(uname string) {
 			b := scanner.Text()
 			switch b {
 			case "h", "s":
-				kickJobDispatcher(&PRINT_STATS_POKE)
+				pokeJobDispatcher(PRINT_STATS_POKE)
 			case "q":
 				crylog.Info("quitting due to q key command")
 				os.Exit(0)
@@ -335,7 +346,12 @@ func startKeyboardScanning(uname string) {
 				}
 			}
 			if len(b) == 0 {
-				kickJobDispatcher(&ENTER_HIT_POKE)
+				if atomic.LoadInt32(&manualMinerToggle) == 0 {
+					atomic.StoreInt32(&manualMinerToggle, 1)
+				} else {
+					atomic.StoreInt32(&manualMinerToggle, 0)
+				}
+				pokeJobDispatcher(ENTER_HIT_POKE)
 			}
 		}
 		crylog.Error("Scanning terminated")
@@ -473,34 +489,38 @@ func prettyInt(i int64) string {
 
 func monitorScreenSaver(ch chan ScreenState) {
 	for state := range ch {
-		// TODO: kickJobDispatcher will fail if the stratum client is inactive, which
-		// will potentially cause us to miss handling some events.
 		switch state {
 		case SCREEN_IDLE:
 			crylog.Info("Screen idle")
-			kickJobDispatcher(&SCREEN_IDLE_POKE)
+			atomic.StoreInt32(&screenIdle, 1)
+			pokeJobDispatcher(SCREEN_IDLE_POKE)
 		case SCREEN_ACTIVE:
 			crylog.Info("Screen active")
-			kickJobDispatcher(&SCREEN_ON_POKE)
+			atomic.StoreInt32(&screenIdle, 0)
+			pokeJobDispatcher(SCREEN_ON_POKE)
 		case BATTERY_POWER:
 			crylog.Info("Battery power")
-			kickJobDispatcher(&BATTERY_POWER_POKE)
+			atomic.StoreInt32(&batteryPower, 1)
+			pokeJobDispatcher(BATTERY_POWER_POKE)
 		case AC_POWER:
 			crylog.Info("AC power")
-			kickJobDispatcher(&AC_POWER_POKE)
+			atomic.StoreInt32(&batteryPower, 0)
+			pokeJobDispatcher(AC_POWER_POKE)
 		}
 	}
 }
 
-// kick the job dispatcher with the given "special job". Returns false if the client is not
-// currently alive.
-func kickJobDispatcher(job *client.MultiClientJob) bool {
+// Poke the job dispatcher. Returns false if the client is not currently alive.
+func pokeJobDispatcher(pokeMsg int) bool {
 	clMutex.Lock()
-	defer clMutex.Unlock()
-	if !clientAlive {
+	alive := clientAlive
+	clMutex.Unlock()
+	if !alive {
+		// jobs will block, so just ignore
+		crylog.Warn("Stratum client is not alive. Ignoring poke:", pokeMsg)
 		return false
 	}
-	cl.JobChannel <- job
+	pokeChannel <- pokeMsg
 	return true
 }
 
@@ -552,33 +572,17 @@ func getActivityMessage(excludeHrStart, excludeHrEnd, threads int) string {
 	return onoff
 }
 
-func handlePoke(wasMining bool, job *client.MultiClientJob, excludeHrStart, excludeHrEnd int) int {
-	var isMiningNow bool
-	if job == &BATTERY_POWER_POKE {
-		atomic.StoreInt32(&batteryPower, 1)
-	} else if job == &AC_POWER_POKE {
-		atomic.StoreInt32(&batteryPower, 0)
-	} else if job == &SCREEN_ON_POKE {
-		atomic.StoreInt32(&screenIdle, 0) // mark the screen as no longer idle
-	} else if job == &SCREEN_IDLE_POKE {
-		atomic.StoreInt32(&screenIdle, 1) // mark screen as idle
-	} else if job == &ENTER_HIT_POKE {
-		if atomic.LoadInt32(&manualMinerToggle) == 0 {
-			atomic.StoreInt32(&manualMinerToggle, 1)
-		} else {
-			atomic.StoreInt32(&manualMinerToggle, 0)
-		}
-	} else if job == &PRINT_STATS_POKE {
+func handlePoke(wasMining bool, poke int, excludeHrStart, excludeHrEnd int) int {
+	if poke == PRINT_STATS_POKE {
 		if !wasMining {
 			printStats(wasMining)
 			return HANDLED
 		}
-		return USE_CACHED // main loop will print out stats
-	} else {
-		// the job is not a recognized poke
-		return 0
+		// If we are actively mining we'll want to accumulate stats from workers before printing
+		// stats for accuracy, so just trigger a fall-through and main loop will sync+dump stats.
+		return USE_CACHED
 	}
-	isMiningNow = miningActive(excludeHrStart, excludeHrEnd)
+	isMiningNow := miningActive(excludeHrStart, excludeHrEnd)
 	if wasMining != isMiningNow {
 		// mining state was toggled so fall through using last received job which will
 		// appropriately halt or restart any mining threads and/or print stats.
