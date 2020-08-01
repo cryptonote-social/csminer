@@ -109,6 +109,7 @@ func Mine(
 	wasJustMining := false
 	pokeChannel = make(chan int)
 
+outer:
 	for {
 		jobChannel := connectClient(cl, uname, rigid, startDiff, config, useTLS)
 		var job *client.MultiClientJob
@@ -133,7 +134,7 @@ func Mine(
 			case job = <-jobChannel:
 				if job == nil {
 					crylog.Warn("stratum client died, reconnecting")
-					break
+					continue outer
 				}
 			}
 			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
