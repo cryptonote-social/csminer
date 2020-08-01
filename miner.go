@@ -107,7 +107,7 @@ func Mine(
 	startKeyboardScanning(uname)
 
 	wasJustMining := false
-	pokeChannel = make(chan int)
+	pokeChannel = make(chan int, 5) // use small amount of buffering for when internet may be bad
 
 outer:
 	for {
