@@ -37,8 +37,10 @@ pool stats in the command shell.
 
 Tips:
 
-In Mac Energy Settings, click Power Adapter, and if present, enable the option "Prevent computer
-from sleeping automatically when the display is off".
+In Mac Energy Settings, make sure your computer is configured to stay awake while in power
+adapter mode. Select the Power Adapter tab, and set any "Computer sleep" slider to "Never".
+If present, enable the option "Prevent computer from sleeping automatically when the display
+is off".
 
 For best performance, if csminer reports it's unable to allocate hugepages, try restarting your
 machine and starting csminer before running anything else.
