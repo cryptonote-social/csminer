@@ -166,20 +166,31 @@ func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce str
 		crylog.Error("json marshalling failed:", err, "for client:", cl)
 		return nil, err
 	}
-	cl.conn.SetWriteDeadline(time.Now().Add(60 * time.Second))
+	cl.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	data = append(data, '\n')
 	if _, err = cl.conn.Write(data); err != nil {
 		crylog.Error("writing request failed:", err, "for client:", cl)
 		return nil, err
 	}
-	response := <-cl.responseChannel
+	timeout := make(chan bool)
+	go func() {
+		time.Sleep(30 * time.Second)
+		timeout <- true
+	}()
+	var response *SubmitWorkResponse
+	select {
+	case response = <-cl.responseChannel:
+	case <-timeout:
+		crylog.Error("response timeout")
+		return nil, fmt.Errorf("submit work failure: response timeout")
+	}
 	if response == nil {
 		crylog.Error("Got nil response")
-		return nil, fmt.Errorf("submit work failure 1")
+		return nil, fmt.Errorf("submit work failure: nil response")
 	}
 	if response.ID != SUBMIT_WORK_JSON_ID {
 		crylog.Error("Got unexpected response:", response.ID)
-		return nil, fmt.Errorf("submit work failure 2")
+		return nil, fmt.Errorf("submit work failure: unexpected response")
 	}
 	return response, nil
 }
@@ -211,14 +222,25 @@ func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, e
 		crylog.Error("writing request failed:", err, "for client:", cl)
 		return nil, err
 	}
-	response := <-cl.responseChannel
+	timeout := make(chan bool)
+	go func() {
+		time.Sleep(30 * time.Second)
+		timeout <- true
+	}()
+	var response *SubmitWorkResponse
+	select {
+	case response = <-cl.responseChannel:
+	case <-timeout:
+		crylog.Error("response timeout")
+		return nil, fmt.Errorf("submit work failure: response timeout")
+	}
 	if response == nil {
-		crylog.Error("Got nil response")
-		return nil, fmt.Errorf("submit work failure 1")
+		crylog.Error("got nil response")
+		return nil, fmt.Errorf("submit work failure: nil response")
 	}
 	if response.ID != SUBMIT_WORK_JSON_ID {
-		crylog.Error("Got unexpected response:", response.ID)
-		return nil, fmt.Errorf("submit work failure 2")
+		crylog.Error("got unexpected response:", response.ID)
+		return nil, fmt.Errorf("submit work failure: unexpected response")
 	}
 	return response, nil
 }

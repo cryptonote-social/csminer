@@ -194,7 +194,9 @@ func connectClient(cl *client.Client, uname, rigid string, startDiff int, config
 			}
 			config += "start_diff=" + strconv.Itoa(startDiff)
 		}
+		clMutex.Lock()
 		err := cl.Connect(uname, config, rigid, useTLS)
+		clMutex.Unlock()
 		if err != nil {
 			crylog.Warn("Client failed to connect:", err)
 			time.Sleep(sleepSec)
@@ -213,9 +215,11 @@ func connectClient(cl *client.Client, uname, rigid string, startDiff int, config
 			crylog.Error("Job dispatcher exitted with error:", err)
 		}
 		clMutex.Lock()
-		clientAlive = false
+		if clientAlive {
+			clientAlive = false
+			cl.Close()
+		}
 		clMutex.Unlock()
-		cl.Close()
 	}()
 
 	crylog.Info("Connected")
@@ -305,6 +309,8 @@ func goMine(wg *sync.WaitGroup, job client.MultiClientJob, thread int) {
 			resp, err := cl.SubmitWork(fnonce, jobid)
 			if err != nil {
 				crylog.Warn("Submit work client failure:", jobid, err)
+				clientAlive = false
+				cl.Close()
 				return
 			}
 			if len(resp.Error) > 0 {
