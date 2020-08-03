@@ -15,7 +15,7 @@ USAGE
 All arguments are optional:
   -user <string>
         your pool username from https://cryptonote.social/xmr (default "donate-getmonero-org")
-  -saver <bool>
+  -saver=<bool>
         mine only when screen is locked (default true). csminer polls the OSX lock screen
         state every 10 seconds and should activate the miner shortly after the screen locks.
   -exclude <string>

@@ -15,7 +15,7 @@ USAGE
 All arguments are optional:
   -user <string>
     	your pool username from https://cryptonote.social/xmr (default "donate-getmonero-org")
-  -saver <bool>
+  -saver=<bool>
     	mine only when screen is dimmed (default true)
   -exclude <string>
         pause mining during the specified hours. Format is XX-YY where XX and YY are hours of

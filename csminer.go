@@ -39,7 +39,7 @@ func MultiMain(s ScreenStater, agent string) {
 			`Usage of ./csminer
   -user <string>
     	your pool username from https://cryptonote.social/xmr (default "donate-getmonero-org")
-  -saver <bool>
+  -saver=<bool>
     	mine only when screen is locked (default true)
   -exclude <string>
         pause mining during the specified hours. Format is XX-YY where XX and YY are hours of
