@@ -124,7 +124,10 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 			ID  string          `json:"id"`
 			Job *MultiClientJob `job:"job"`
 		} `json:"result"`
-		Error interface{} `json:"error"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		}
 	}{}
 	cl.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	err = readJSON(response, bufio.NewReaderSize(cl.conn, MAX_REQUEST_SIZE))
@@ -134,8 +137,9 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 	}
 	if response.Result == nil {
 		crylog.Error("Didn't get job result from login response:", response.Error)
-		return errors.New("no job")
+		return errors.New("pool server returned error: " + response.Error.Message)
 	}
+	crylog.Info("login response:", response)
 	cl.firstJob = response.Result.Job
 	return nil
 }
@@ -161,56 +165,10 @@ func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce str
 		}{"696969", jobid, nonce, "", username, rigid, targetDifficulty, connNonce},
 	}
 
-	data, err := json.Marshal(submitRequest)
-	if err != nil {
-		crylog.Error("json marshalling failed:", err, "for client:", cl)
-		return nil, err
-	}
-	cl.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	data = append(data, '\n')
-	if _, err = cl.conn.Write(data); err != nil {
-		crylog.Error("writing request failed:", err, "for client:", cl)
-		return nil, err
-	}
-	timeout := make(chan bool)
-	go func() {
-		time.Sleep(30 * time.Second)
-		timeout <- true
-	}()
-	var response *SubmitWorkResponse
-	select {
-	case response = <-cl.responseChannel:
-	case <-timeout:
-		crylog.Error("response timeout")
-		return nil, fmt.Errorf("submit work failure: response timeout")
-	}
-	if response == nil {
-		crylog.Error("Got nil response")
-		return nil, fmt.Errorf("submit work failure: nil response")
-	}
-	if response.ID != SUBMIT_WORK_JSON_ID {
-		crylog.Error("Got unexpected response:", response.ID)
-		return nil, fmt.Errorf("submit work failure: unexpected response")
-	}
-	return response, nil
+	return cl.submitRequest(submitRequest)
 }
 
-func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, error) {
-	submitRequest := &struct {
-		ID     uint64      `json:"id"`
-		Method string      `json:"method"`
-		Params interface{} `json:"params"`
-	}{
-		ID:     SUBMIT_WORK_JSON_ID,
-		Method: "submit",
-		Params: &struct {
-			ID     string `json:"id"`
-			JobID  string `json:"job_id"`
-			Nonce  string `json:"nonce"`
-			Result string `json:"result"`
-		}{"696969", jobid, nonce, ""},
-	}
-
+func (cl *Client) submitRequest(submitRequest interface{}) (*SubmitWorkResponse, error) {
 	data, err := json.Marshal(submitRequest)
 	if err != nil {
 		crylog.Error("json marshalling failed:", err, "for client:", cl)
@@ -243,6 +201,24 @@ func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, e
 		return nil, fmt.Errorf("submit work failure: unexpected response")
 	}
 	return response, nil
+}
+
+func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, error) {
+	submitRequest := &struct {
+		ID     uint64      `json:"id"`
+		Method string      `json:"method"`
+		Params interface{} `json:"params"`
+	}{
+		ID:     SUBMIT_WORK_JSON_ID,
+		Method: "submit",
+		Params: &struct {
+			ID     string `json:"id"`
+			JobID  string `json:"job_id"`
+			Nonce  string `json:"nonce"`
+			Result string `json:"result"`
+		}{"696969", jobid, nonce, ""},
+	}
+	return cl.submitRequest(submitRequest)
 }
 
 func (cl *Client) String() string {
