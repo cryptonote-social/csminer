@@ -46,6 +46,8 @@ var (
 	screenIdle        int32 // only mine when this is > 0
 	batteryPower      int32 // only mine when this is > 0
 	manualMinerToggle int32 // whether paused mining has been manually overridden
+
+	threads int
 )
 
 const (
@@ -58,12 +60,14 @@ const (
 	BATTERY_POWER = 2
 	AC_POWER      = 3
 
-	SCREEN_IDLE_POKE   = 0
-	SCREEN_ON_POKE     = 1
-	BATTERY_POWER_POKE = 2
-	AC_POWER_POKE      = 3
-	PRINT_STATS_POKE   = 4
-	ENTER_HIT_POKE     = 5
+	SCREEN_IDLE_POKE      = 0
+	SCREEN_ON_POKE        = 1
+	BATTERY_POWER_POKE    = 2
+	AC_POWER_POKE         = 3
+	PRINT_STATS_POKE      = 4
+	ENTER_HIT_POKE        = 5
+	INCREASE_THREADS_POKE = 6
+	DECREASE_THREADS_POKE = 7
 )
 
 type ScreenState int
@@ -75,9 +79,10 @@ type ScreenStater interface {
 }
 
 func Mine(
-	s ScreenStater, threads int, uname, rigid string, saver bool,
+	s ScreenStater, t int, uname, rigid string, saver bool,
 	excludeHrStart int, excludeHrEnd int, startDiff int,
 	useTLS bool, config string, agent string) error {
+	threads = t
 	if useTLS {
 		cl = client.NewClient("cryptonote.social:5556", agent)
 	} else {
@@ -336,6 +341,7 @@ func printKeyboardCommands() {
 	crylog.Info("Keyboard commands:")
 	crylog.Info("   s: print miner stats")
 	crylog.Info("   p: print pool-side user stats")
+	crylog.Info("   i/d: increase/decrease number of threads by 1")
 	crylog.Info("   q: quit")
 	crylog.Info("   <enter>: override a paused miner")
 }
@@ -346,6 +352,10 @@ func startKeyboardScanning(uname string) {
 		for scanner.Scan() {
 			b := scanner.Text()
 			switch b {
+			case "i":
+				pokeJobDispatcher(INCREASE_THREADS_POKE)
+			case "d":
+				pokeJobDispatcher(DECREASE_THREADS_POKE)
 			case "h", "s":
 				pokeSuccess := pokeJobDispatcher(PRINT_STATS_POKE)
 				if !pokeSuccess {
@@ -353,8 +363,8 @@ func startKeyboardScanning(uname string) {
 					// still be safe to print stats.
 					printStats(false)
 				}
-			case "q":
-				crylog.Info("quitting due to q key command")
+			case "q", "quit", "exit":
+				crylog.Info("quitting due to keyboard command")
 				os.Exit(0)
 			case "?", "help":
 				printKeyboardCommands()
@@ -606,6 +616,32 @@ func handlePoke(wasMining bool, poke int, excludeHrStart, excludeHrEnd int) int 
 		}
 		// If we are actively mining we'll want to accumulate stats from workers before printing
 		// stats for accuracy, so just trigger a fall-through and main loop will sync+dump stats.
+		return USE_CACHED
+	}
+	if poke == INCREASE_THREADS_POKE {
+		atomic.StoreUint32(&stopper, 1)
+		wg.Wait()
+		t := rx.AddThread()
+		if t < 0 {
+			crylog.Error("Failed to add another thread")
+			return USE_CACHED
+		}
+		threads = t
+		crylog.Info("Increased # of threads to:", threads)
+		resetRecentStats()
+		return USE_CACHED
+	}
+	if poke == DECREASE_THREADS_POKE {
+		atomic.StoreUint32(&stopper, 1)
+		wg.Wait()
+		t := rx.RemoveThread()
+		if t < 0 {
+			crylog.Error("Failed to decrease threads")
+			return USE_CACHED
+		}
+		threads = t
+		crylog.Info("Decreased # of threads to:", threads)
+		resetRecentStats()
 		return USE_CACHED
 	}
 	isMiningNow := miningActive(excludeHrStart, excludeHrEnd)

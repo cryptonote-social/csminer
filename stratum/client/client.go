@@ -144,7 +144,6 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 		crylog.Error("Didn't get job result from login response:", response.Error)
 		return errors.New(STRATUM_SERVER_ERROR + response.Error.Message)
 	}
-	crylog.Info("login response:", response)
 	cl.firstJob = response.Result.Job
 	return nil
 }

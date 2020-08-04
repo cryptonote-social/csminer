@@ -21,7 +21,7 @@ const (
 
 var (
 	saver   = flag.Bool("saver", true, "run only when screen is locked")
-	threads = flag.Int("threads", 1, "number of threads")
+	t       = flag.Int("threads", 1, "number of threads")
 	uname   = flag.String("user", DONATE_USERNAME, "your pool username from https://cryptonote.social/xmr")
 	rigid   = flag.String("rigid", "csminer", "your rig id")
 	tls     = flag.Bool("tls", false, "whether to use TLS when connecting to the pool")
@@ -94,8 +94,9 @@ func MultiMain(s ScreenStater, agent string) {
 	if *saver {
 		fmt.Printf("\nNOTE: Mining only when screen is locked. Specify -saver=false to mine always.\n")
 	}
-	if *threads == 1 {
+	if *t == 1 {
 		fmt.Printf("\nMining with only one thread. Specify -threads=X to use more.\n")
+		fmt.Printf("Or use the [i] keyboard command to add threads dynamically.\n")
 	}
 	if hr1 != -1 {
 		fmt.Printf("\nMining will be paused between the hours of %v:00 and %v:00.\n", hr1, hr2)
@@ -105,9 +106,9 @@ func MultiMain(s ScreenStater, agent string) {
 
 	fmt.Println("\n==== Status/Debug output follows ====")
 	crylog.Info("Miner username:", *uname)
-	crylog.Info("Threads:", *threads)
+	crylog.Info("Threads:", *t)
 
-	if Mine(s, *threads, *uname, *rigid, *saver, hr1, hr2, *startDiff, *tls, *config, agent) != nil {
+	if Mine(s, *t, *uname, *rigid, *saver, hr1, hr2, *startDiff, *tls, *config, agent) != nil {
 		crylog.Error("Miner failed:", err)
 	}
 }

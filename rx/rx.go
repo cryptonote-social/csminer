@@ -42,3 +42,15 @@ func HashUntil(blob []byte, difficulty uint64, thread int, hash []byte, nonce []
 		(*C.uint32_t)(unsafe.Pointer(stopper)))
 	return int64(res)
 }
+
+// only call when all existing threads are stopped
+func AddThread() int {
+	res := C.rx_add_thread()
+	return int(res)
+}
+
+// only call when all existing threads are stopped
+func RemoveThread() int {
+	res := C.rx_remove_thread()
+	return int(res)
+}
