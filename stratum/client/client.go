@@ -22,6 +22,8 @@ const (
 	CONNECT_JSON_ID     = 666
 
 	MAX_REQUEST_SIZE = 10000 // Max # of bytes we will read per request
+
+	STRATUM_SERVER_ERROR = "stratum server error: "
 )
 
 type Job struct {
@@ -70,6 +72,9 @@ func NewClient(address string, agent string) *Client {
 	}
 }
 
+// Connect to the stratum server port with the given login info. Returns error if connection could
+// not be established, or if the stratum server itself returned an error. The later case is
+// indicated by an error string prefix of STRATUM_SERVER_ERROR.
 func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 	var err error
 	if !useTLS {
@@ -137,7 +142,7 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 	}
 	if response.Result == nil {
 		crylog.Error("Didn't get job result from login response:", response.Error)
-		return errors.New("pool server returned error: " + response.Error.Message)
+		return errors.New(STRATUM_SERVER_ERROR + response.Error.Message)
 	}
 	crylog.Info("login response:", response)
 	cl.firstJob = response.Result.Job

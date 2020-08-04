@@ -200,6 +200,11 @@ func connectClient(cl *client.Client, uname, rigid string, startDiff int, config
 		err := cl.Connect(uname, config, rigid, useTLS)
 		clMutex.Unlock()
 		if err != nil {
+			errString := err.Error()
+			if strings.Index(errString, client.STRATUM_SERVER_ERROR) == 0 {
+				crylog.Error("Pool server returned error:", errString[len(client.STRATUM_SERVER_ERROR):])
+				os.Exit(1)
+			}
 			crylog.Warn("Client failed to connect:", err)
 			time.Sleep(sleepSec)
 			sleepSec += time.Second
@@ -215,6 +220,7 @@ func connectClient(cl *client.Client, uname, rigid string, startDiff int, config
 		err := cl.DispatchJobs()
 		if err != nil {
 			crylog.Error("Job dispatcher exitted with error:", err)
+			os.Exit(1)
 		}
 		clMutex.Lock()
 		if clientAlive {
