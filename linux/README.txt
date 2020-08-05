@@ -57,14 +57,14 @@ ADDITIONAL DETAILS
 Usernames
 
 If you don't already have a username established with the pool, you can create one by simply
-specifying -user=your-wallet-id.your-chosen-username, e.g.:
+specifying your wallet id with the -wallet option along with your selected username, e.g.:
 
-./csminer -user=888tNkZrPN6JsEgekjMnABU4TBzc2Dt29EPAvkRxbANsAnjyPbb3iQ1YBRk1UXcdRsiKc9dhwMVgN5S9cQUiyoogDavup3H.donate-monero-org
+./csminer -user=your-chosen-username -wallet=your-wallet-id
 
 Once you've submitted at least one share, the wallet address is permanently associated with the
 username and you can login with the username alone, e.g.:
 
-./csminer -user=get-monero-org
+./csminer -user=your-chosen-username
 
 Implementation
 
