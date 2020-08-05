@@ -1,4 +1,4 @@
-csminer v0.1.1 (Linux/Gnome version)
+csminer v0.1.2 (Linux/Gnome version)
 
 SYNOPSIS
 
@@ -31,7 +31,12 @@ All arguments are optional:
   -config <string>
         advanced pool config option string, for specifying starting diff, donation percentage,
         email address for notifications, and more. See "advanced configuration options" under Get
-        Started on the pool site for details.
+        Started on the pool site for details. Some options will require you to also specify your
+        wallet id (see below) in order to be changed.
+  -wallet <string>
+        your wallet id. You only need to specify this when establishing a new username, or if
+        specifying a 'secure' config parameter change such as a new pool donation amount or email
+        address. New usernames will be established upon submitting at least one valid share.
 
 Monitor your miner progress at: https://cryptonote.social/xmr, or type <p> + <enter> to display
 pool stats in the command shell.

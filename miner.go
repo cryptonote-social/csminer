@@ -47,7 +47,7 @@ var (
 	batteryPower      int32 // only mine when this is > 0
 	manualMinerToggle int32 // whether paused mining has been manually overridden
 
-	threads int
+	mc *MinerConfig
 )
 
 const (
@@ -78,15 +78,25 @@ type ScreenStater interface {
 	GetScreenStateChannel() (chan ScreenState, error)
 }
 
-func Mine(
-	s ScreenStater, t int, uname, rigid string, saver bool,
-	excludeHrStart int, excludeHrEnd int, startDiff int,
-	useTLS bool, config string, agent string) error {
-	threads = t
-	if useTLS {
-		cl = client.NewClient("cryptonote.social:5556", agent)
+type MinerConfig struct {
+	ScreenStater                 ScreenStater
+	Threads                      int
+	Username, RigID              string
+	Wallet                       string
+	Agent                        string
+	Saver                        bool
+	ExcludeHrStart, ExcludeHrEnd int
+	StartDiff                    int // deprecated, use AdvancedConfig instead
+	UseTLS                       bool
+	AdvancedConfig               string
+}
+
+func Mine(c *MinerConfig) error {
+	mc = c
+	if mc.UseTLS {
+		cl = client.NewClient("cryptonote.social:5556", mc.Agent)
 	} else {
-		cl = client.NewClient("cryptonote.social:5555", agent)
+		cl = client.NewClient("cryptonote.social:5555", mc.Agent)
 	}
 	startTime = time.Now()
 	lastStatsResetTime = time.Now()
@@ -96,8 +106,8 @@ func Mine(
 	batteryPower = 0
 
 	manualMinerToggle = 0
-	if saver {
-		ch, err := s.GetScreenStateChannel()
+	if mc.Saver {
+		ch, err := mc.ScreenStater.GetScreenStateChannel()
 		if err != nil {
 			crylog.Error("failed to get screen state monitor, screen state will be ignored")
 		} else {
@@ -109,22 +119,22 @@ func Mine(
 	}
 
 	printKeyboardCommands()
-	startKeyboardScanning(uname)
+	startKeyboardScanning()
 
 	wasJustMining := false
 	pokeChannel = make(chan int, 5) // use small amount of buffering for when internet may be bad
 
 outer:
 	for {
-		jobChannel := connectClient(cl, uname, rigid, startDiff, config, useTLS)
+		jobChannel := connectClient()
 		resetRecentStats()
 		var job *client.MultiClientJob
 		for {
-			onoff := getActivityMessage(excludeHrStart, excludeHrEnd, threads)
+			onoff := getActivityMessage()
 			crylog.Info("[mining=" + onoff + "]")
 			select {
 			case poke := <-pokeChannel:
-				pokeRes := handlePoke(wasJustMining, poke, excludeHrStart, excludeHrEnd)
+				pokeRes := handlePoke(wasJustMining, poke)
 				switch pokeRes {
 				case HANDLED:
 					continue
@@ -157,13 +167,13 @@ outer:
 			}
 			if bytes.Compare(newSeed, seed) != 0 {
 				crylog.Info("New seed:", job.SeedHash)
-				rx.InitRX(newSeed, threads, runtime.GOMAXPROCS(0))
+				rx.InitRX(newSeed, mc.Threads, runtime.GOMAXPROCS(0))
 				seed = newSeed
 				resetRecentStats()
 			}
 
 			// Start mining on new job if mining is active
-			if miningActive(excludeHrStart, excludeHrEnd) {
+			if miningActive() {
 				if !wasJustMining {
 					// Reset recent stats whenever going from not mining to mining,
 					// and don't print stats because they could be inaccurate
@@ -173,7 +183,7 @@ outer:
 					printStats(true)
 				}
 				atomic.StoreUint32(&stopper, 0)
-				for i := 0; i < threads; i++ {
+				for i := 0; i < mc.Threads; i++ {
 					wg.Add(1)
 					go goMine(&wg, *job, i /*thread*/)
 				}
@@ -189,20 +199,26 @@ outer:
 // connectClient will try to establish the connection to the stratum server and won't return until
 // successful. It will also start the job dispatching loop once connected. clientAlive will be true
 // upon return.
-func connectClient(cl *client.Client, uname, rigid string, startDiff int, config string, useTLS bool) chan *client.MultiClientJob {
+func connectClient() chan *client.MultiClientJob {
 	clMutex.Lock()
 	clientAlive = false
 	clMutex.Unlock()
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
+	if mc.StartDiff > 0 {
+		// TODO: -start_diff flag is deprecated in favor of -config, so remove this when
+		// appropriate.
+		if len(mc.AdvancedConfig) > 0 {
+			mc.AdvancedConfig += ";"
+		}
+		mc.AdvancedConfig += "start_diff=" + strconv.Itoa(mc.StartDiff)
+	}
 	for {
-		if startDiff > 0 {
-			if len(config) > 0 {
-				config += ";"
-			}
-			config += "start_diff=" + strconv.Itoa(startDiff)
+		loginName := mc.Username
+		if mc.Wallet != "" {
+			loginName = mc.Wallet + "." + mc.Username
 		}
 		clMutex.Lock()
-		err := cl.Connect(uname, config, rigid, useTLS)
+		err := cl.Connect(loginName, mc.AdvancedConfig, mc.RigID, mc.UseTLS)
 		clMutex.Unlock()
 		if err != nil {
 			errString := err.Error()
@@ -239,8 +255,10 @@ func connectClient(cl *client.Client, uname, rigid string, startDiff int, config
 	return cl.JobChannel
 }
 
-func timeExcluded(startHr, endHr int) bool {
+func timeExcluded() bool {
 	currHr := time.Now().Hour()
+	startHr := mc.ExcludeHrStart
+	endHr := mc.ExcludeHrEnd
 	if startHr < endHr {
 		return currHr >= startHr && currHr < endHr
 	}
@@ -346,7 +364,7 @@ func printKeyboardCommands() {
 	crylog.Info("   <enter>: override a paused miner")
 }
 
-func startKeyboardScanning(uname string) {
+func startKeyboardScanning() {
 	scanner := bufio.NewScanner(os.Stdin)
 	go func() {
 		for scanner.Scan() {
@@ -369,7 +387,7 @@ func startKeyboardScanning(uname string) {
 			case "?", "help":
 				printKeyboardCommands()
 			case "p":
-				err := printPoolSideStats(uname)
+				err := printPoolSideStats()
 				if err != nil {
 					crylog.Error("Failed to get pool side user stats:", err)
 				}
@@ -394,12 +412,12 @@ func startKeyboardScanning(uname string) {
 	}()
 }
 
-func printPoolSideStats(uname string) error {
+func printPoolSideStats() error {
 	c := &http.Client{
 		Timeout: 15 * time.Second,
 	}
 	uri := "https://cryptonote.social/json/WorkerStats"
-	sbody := "{\"Coin\": \"xmr\", \"Worker\": \"" + uname + "\"}\n"
+	sbody := "{\"Coin\": \"xmr\", \"Worker\": \"" + mc.Username + "\"}\n"
 	body := strings.NewReader(sbody)
 	resp, err := c.Post(uri, "", body)
 	if err != nil {
@@ -482,7 +500,7 @@ func printPoolSideStats(uname string) error {
 	}
 
 	crylog.Info("==========================================")
-	crylog.Info("User            :", uname)
+	crylog.Info("User            :", mc.Username)
 	crylog.Info("Progress        :", strconv.FormatFloat(s.CycleProgress*100.0, 'f', 5, 64)+"%")
 	crylog.Info("1 Hr Hashrate   :", s.Hashrate1)
 	crylog.Info("24 Hr Hashrate  :", s.Hashrate24)
@@ -560,7 +578,7 @@ func pokeJobDispatcher(pokeMsg int) bool {
 	return true
 }
 
-func miningActive(excludeHrStart, excludeHrEnd int) bool {
+func miningActive() bool {
 	if atomic.LoadInt32(&batteryPower) > 0 {
 		return false
 	}
@@ -572,14 +590,14 @@ func miningActive(excludeHrStart, excludeHrEnd int) bool {
 		// don't mine if screen is active
 		return false
 	}
-	if timeExcluded(excludeHrStart, excludeHrEnd) {
+	if timeExcluded() {
 		// don't mine if we're in the excluded time range
 		return false
 	}
 	return true
 }
 
-func getActivityMessage(excludeHrStart, excludeHrEnd, threads int) string {
+func getActivityMessage() string {
 	battery := atomic.LoadInt32(&batteryPower) > 0
 	if battery {
 		return "PAUSED due to running on battery power"
@@ -590,25 +608,25 @@ func getActivityMessage(excludeHrStart, excludeHrEnd, threads int) string {
 
 	onoff := ""
 
-	if timeExcluded(excludeHrStart, excludeHrEnd) {
+	if timeExcluded() {
 		if !toggled {
 			onoff = "PAUSED due to -exclude hour range. <enter> to mine anyway"
 		} else {
-			onoff = "ACTIVE (threads=" + strconv.Itoa(threads) + ") due to keyboard override. <enter> to undo override"
+			onoff = "ACTIVE (threads=" + strconv.Itoa(mc.Threads) + ") due to keyboard override. <enter> to undo override"
 		}
 	} else if !saver {
 		if !toggled {
 			onoff = "PAUSED until screen lock. <enter> to mine anyway"
 		} else {
-			onoff = "ACTIVE (threads=" + strconv.Itoa(threads) + ") due to keyboard override. <enter> to undo override"
+			onoff = "ACTIVE (threads=" + strconv.Itoa(mc.Threads) + ") due to keyboard override. <enter> to undo override"
 		}
 	} else {
-		onoff = "ACTIVE (threads=" + strconv.Itoa(threads) + ")"
+		onoff = "ACTIVE (threads=" + strconv.Itoa(mc.Threads) + ")"
 	}
 	return onoff
 }
 
-func handlePoke(wasMining bool, poke int, excludeHrStart, excludeHrEnd int) int {
+func handlePoke(wasMining bool, poke int) int {
 	if poke == PRINT_STATS_POKE {
 		if !wasMining {
 			printStats(wasMining)
@@ -626,8 +644,8 @@ func handlePoke(wasMining bool, poke int, excludeHrStart, excludeHrEnd int) int 
 			crylog.Error("Failed to add another thread")
 			return USE_CACHED
 		}
-		threads = t
-		crylog.Info("Increased # of threads to:", threads)
+		mc.Threads = t
+		crylog.Info("Increased # of threads to:", mc.Threads)
 		resetRecentStats()
 		return USE_CACHED
 	}
@@ -639,12 +657,12 @@ func handlePoke(wasMining bool, poke int, excludeHrStart, excludeHrEnd int) int 
 			crylog.Error("Failed to decrease threads")
 			return USE_CACHED
 		}
-		threads = t
-		crylog.Info("Decreased # of threads to:", threads)
+		mc.Threads = t
+		crylog.Info("Decreased # of threads to:", mc.Threads)
 		resetRecentStats()
 		return USE_CACHED
 	}
-	isMiningNow := miningActive(excludeHrStart, excludeHrEnd)
+	isMiningNow := miningActive()
 	if wasMining != isMiningNow {
 		// mining state was toggled so fall through using last received job which will
 		// appropriately halt or restart any mining threads and/or print stats.

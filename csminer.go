@@ -12,7 +12,7 @@ import (
 
 const (
 	APPLICATION_NAME = "cryptonote.social Monero miner"
-	VERSION_STRING   = "0.1.1"
+	VERSION_STRING   = "0.1.2"
 	STATS_WEBPAGE    = "https://cryptonote.social/xmr"
 	DONATE_USERNAME  = "donate-getmonero-org"
 
@@ -27,6 +27,7 @@ var (
 	tls     = flag.Bool("tls", false, "whether to use TLS when connecting to the pool")
 	exclude = flag.String("exclude", "", "pause mining during these hours, e.g. -exclude=11-16 will pause mining between 11am and 4pm")
 	config  = flag.String("config", "", "advanced pool configuration options, e.g. start_diff=1000;donate=1.0")
+	wallet  = flag.String("wallet", "", "your wallet id. only specify this when establishing a new username, or specifying a 'secure' config change such as a change in donation amount")
 
 	// Deprecated:
 	startDiff = flag.Int("start_diff", 0, "a starting difficulty value for the pool")
@@ -55,7 +56,12 @@ func MultiMain(s ScreenStater, agent string) {
   -config <string>
         advanced pool config option string, for specifying starting diff, donation percentage,
         email address for notifications, and more. See "advanced configuration options" under Get
-        Started on the pool site for details.
+        Started on the pool site for details. Some options will require you to also specify your
+        wallet id (see below) in order to be changed.
+  -wallet <string>
+        your wallet id. You only need to specify this when establishing a new username, or if
+        specifying a 'secure' config parameter change such as a new pool donation amount or email
+        address. New usernames will be established upon submitting at least one valid share.
 `)
 		fmt.Fprintf(flag.CommandLine.Output(), "\nMonitor your miner progress at: %s\n", STATS_WEBPAGE)
 		fmt.Fprint(flag.CommandLine.Output(), "Send feedback to: cryptonote.social@gmail.com\n")
@@ -108,7 +114,21 @@ func MultiMain(s ScreenStater, agent string) {
 	crylog.Info("Miner username:", *uname)
 	crylog.Info("Threads:", *t)
 
-	if Mine(s, *t, *uname, *rigid, *saver, hr1, hr2, *startDiff, *tls, *config, agent) != nil {
+	config := MinerConfig{
+		ScreenStater:   s,
+		Threads:        *t,
+		Username:       *uname,
+		RigID:          *rigid,
+		Wallet:         *wallet,
+		Agent:          agent,
+		Saver:          *saver,
+		ExcludeHrStart: hr1,
+		ExcludeHrEnd:   hr2,
+		StartDiff:      *startDiff,
+		UseTLS:         *tls,
+		AdvancedConfig: *config,
+	}
+	if Mine(&config) != nil {
 		crylog.Error("Miner failed:", err)
 	}
 }
