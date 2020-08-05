@@ -218,18 +218,30 @@ func connectClient() chan *client.MultiClientJob {
 			loginName = mc.Wallet + "." + mc.Username
 		}
 		clMutex.Lock()
-		err := cl.Connect(loginName, mc.AdvancedConfig, mc.RigID, mc.UseTLS)
+		err, code, message := cl.Connect(loginName, mc.AdvancedConfig, mc.RigID, mc.UseTLS)
 		clMutex.Unlock()
 		if err != nil {
-			errString := err.Error()
-			if strings.Index(errString, client.STRATUM_SERVER_ERROR) == 0 {
-				crylog.Error("Pool server returned error:", errString[len(client.STRATUM_SERVER_ERROR):])
+			if code != 0 {
+				// stratum server error
+				crylog.Error("Pool server did not allow a connection due to error:")
+				crylog.Error("  ::::::", message, "::::::")
 				os.Exit(1)
 			}
 			crylog.Warn("Client failed to connect:", err)
 			time.Sleep(sleepSec)
 			sleepSec += time.Second
 			continue
+		} else if code != 0 {
+			// We got a warning from the stratum server
+			if code == client.NO_WALLET_SPECIFIED_WARNING_CODE {
+				crylog.Warn("")
+				crylog.Warn("WARNING: you username is not yet associated with any wallet id.")
+				crylog.Warn("         You should fix this immediately with the -wallet flag!")
+				crylog.Warn("")
+			} else {
+				crylog.Warn("Pool server returned warning:")
+				crylog.Warn("  ::::::", message, "::::::")
+			}
 		}
 		break
 	}

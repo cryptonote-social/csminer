@@ -23,7 +23,7 @@ const (
 
 	MAX_REQUEST_SIZE = 10000 // Max # of bytes we will read per request
 
-	STRATUM_SERVER_ERROR = "stratum server error: "
+	NO_WALLET_SPECIFIED_WARNING_CODE = 2
 )
 
 type Job struct {
@@ -73,10 +73,10 @@ func NewClient(address string, agent string) *Client {
 }
 
 // Connect to the stratum server port with the given login info. Returns error if connection could
-// not be established, or if the stratum server itself returned an error. The later case is
-// indicated by an error string prefix of STRATUM_SERVER_ERROR.
-func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
-	var err error
+// not be established, or if the stratum server itself returned an error. In the latter case,
+// code and message will also be specified. If the stratum server returned just a warning, then
+// error will be nil, but code & message will be specified.
+func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) (err error, code int, message string) {
 	if !useTLS {
 		cl.conn, err = net.DialTimeout("tcp", cl.address, time.Second*30)
 	} else {
@@ -84,7 +84,7 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 	}
 	if err != nil {
 		crylog.Error("Dial failed:", err, cl)
-		return err
+		return err, 0, ""
 	}
 	cl.responseChannel = make(chan *SubmitWorkResponse)
 	cl.JobChannel = make(chan *MultiClientJob)
@@ -112,13 +112,13 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 	data, err := json.Marshal(loginRequest)
 	if err != nil {
 		crylog.Error("json marshalling failed:", err, "for client:", cl)
-		return err
+		return err, 0, ""
 	}
 	cl.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	data = append(data, '\n')
 	if _, err = cl.conn.Write(data); err != nil {
 		crylog.Error("writing request failed:", err, "for client:", cl)
-		return err
+		return err, 0, ""
 	}
 
 	// Now read the login response
@@ -132,20 +132,31 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) error {
 		Error *struct {
 			Code    int    `json:"code"`
 			Message string `json:"message"`
-		}
+		} `json:"error"`
+		// our own custom field for reporting login warnings without forcing disconnect from error:
+		Warning *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"warning"`
 	}{}
 	cl.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	err = readJSON(response, bufio.NewReaderSize(cl.conn, MAX_REQUEST_SIZE))
+	rdr := bufio.NewReaderSize(cl.conn, MAX_REQUEST_SIZE)
+	//d, _, _ := rdr.ReadLine()
+	//crylog.Info("login response:", string(d))
+	err = readJSON(response, rdr)
 	if err != nil {
 		crylog.Error("readJSON failed for client:", cl, err)
-		return err
+		return err, 0, ""
 	}
 	if response.Result == nil {
 		crylog.Error("Didn't get job result from login response:", response.Error)
-		return errors.New(STRATUM_SERVER_ERROR + response.Error.Message)
+		return errors.New("stratum server error"), response.Error.Code, response.Error.Message
 	}
 	cl.firstJob = response.Result.Job
-	return nil
+	if response.Warning != nil {
+		return nil, response.Warning.Code, response.Warning.Message
+	}
+	return nil, 0, ""
 }
 
 func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce string, connNonce []byte, jobid string, targetDifficulty int64) (*SubmitWorkResponse, error) {
