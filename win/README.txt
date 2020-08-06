@@ -14,9 +14,9 @@ USAGE
 
 All arguments are optional:
   -user <string>
-    	your pool username from https://cryptonote.social/xmr (default "donate-getmonero-org")
+        your pool username from https://cryptonote.social/xmr (default "donate-getmonero-org")
   -saver=<bool>
-    	mine only when screen is locked or the screensaver is running (default true)
+        mine only when screen is locked or the screensaver is running (default true)
   -exclude <string>
         pause mining during the specified hours. Format is XX-YY where XX and YY are hours of
         the day designated in 24 hour time. For example, -exclude=11-16 will pause mining betwen
@@ -25,7 +25,7 @@ All arguments are optional:
   -threads <int>
         number of threads (default 1)
   -rigid <string>
-    	your rig id (default "csminer")
+        your rig id (default "csminer")
   -tls <bool>
         whether to use TLS when connecting to the pool (default false)
   -config <string>
