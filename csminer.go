@@ -68,27 +68,32 @@ func MultiMain(s ScreenStater, agent string) {
 	}
 	flag.Parse()
 
+	if strings.Index(*uname, ".") != -1 {
+		crylog.Fatal("Usernames cannot contain the '.' character. If you are trying to specify a wallet id, use -wallet instead")
+		return
+	}
+
 	var hr1, hr2 int
 	hr1 = -1
 	var err error
 	if len(*exclude) > 0 {
 		hrs := strings.Split(*exclude, "-")
 		if len(hrs) != 2 {
-			crylog.Error(INVALID_EXCLUDE_FORMAT_MESSAGE)
+			crylog.Fatal(INVALID_EXCLUDE_FORMAT_MESSAGE)
 			return
 		}
 		hr1, err = strconv.Atoi(hrs[0])
 		if err != nil {
-			crylog.Error(INVALID_EXCLUDE_FORMAT_MESSAGE, err)
+			crylog.Fatal(INVALID_EXCLUDE_FORMAT_MESSAGE, err)
 			return
 		}
 		hr2, err = strconv.Atoi(hrs[1])
 		if err != nil {
-			crylog.Error(INVALID_EXCLUDE_FORMAT_MESSAGE, err)
+			crylog.Fatal(INVALID_EXCLUDE_FORMAT_MESSAGE, err)
 			return
 		}
 		if hr1 > 24 || hr1 < 0 || hr2 > 24 || hr1 < 0 {
-			crylog.Error("INVALID_EXCLUDE_FORMAT_MESSAGE", ": XX and YY must each be between 0 and 24")
+			crylog.Fatal("INVALID_EXCLUDE_FORMAT_MESSAGE", ": XX and YY must each be between 0 and 24")
 			return
 		}
 	}
@@ -129,6 +134,6 @@ func MultiMain(s ScreenStater, agent string) {
 		AdvancedConfig: *config,
 	}
 	if Mine(&config) != nil {
-		crylog.Error("Miner failed:", err)
+		crylog.Fatal("Miner failed:", err)
 	}
 }
