@@ -233,15 +233,17 @@ func connectClient() chan *client.MultiClientJob {
 			continue
 		} else if code != 0 {
 			// We got a warning from the stratum server
+			crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
 			if code == client.NO_WALLET_SPECIFIED_WARNING_CODE {
-				crylog.Warn("")
-				crylog.Warn("WARNING: you username is not yet associated with any wallet id.")
-				crylog.Warn("         You should fix this immediately with the -wallet flag!")
-				crylog.Warn("")
+				crylog.Warn("WARNING: your username is not yet associated with any")
+				crylog.Warn("   wallet id. You should fix this immediately with the")
+				crylog.Warn("   -wallet flag.\n")
 			} else {
-				crylog.Warn("Pool server returned warning:")
-				crylog.Warn("  ::::::", message, "::::::")
+				crylog.Warn("WARNING from pool server")
+				crylog.Warn("   Message:", message)
+				crylog.Warn("   Code   :", code, "\n")
 			}
+			crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
 		}
 		break
 	}
