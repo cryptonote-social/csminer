@@ -57,11 +57,11 @@ type MultiClientJob struct {
 
 type Client struct {
 	JobChannel chan *MultiClientJob
+	FirstJob   *MultiClientJob
 
 	address         string
 	agent           string
 	conn            net.Conn
-	firstJob        *MultiClientJob
 	responseChannel chan *SubmitWorkResponse
 }
 
@@ -152,7 +152,7 @@ func (cl *Client) Connect(uname, pw, rigid string, useTLS bool) (err error, code
 		crylog.Error("Didn't get job result from login response:", response.Error)
 		return errors.New("stratum server error"), response.Error.Code, response.Error.Message
 	}
-	cl.firstJob = response.Result.Job
+	cl.FirstJob = response.Result.Job
 	if response.Warning != nil {
 		return nil, response.Warning.Code, response.Warning.Message
 	}
@@ -258,8 +258,8 @@ type SubmitWorkResponse struct {
 // DispatchJobs will forward incoming jobs to the JobChannel until error is received or the
 // connection is closed.
 func (cl *Client) DispatchJobs() error {
-	cl.JobChannel <- cl.firstJob
-	cl.firstJob = nil
+	cl.JobChannel <- cl.FirstJob
+	cl.FirstJob = nil
 	reader := bufio.NewReaderSize(cl.conn, MAX_REQUEST_SIZE)
 	for {
 		response := &SubmitWorkResponse{}

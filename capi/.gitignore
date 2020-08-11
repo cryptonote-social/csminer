@@ -1,0 +1,4 @@
+capi.a
+capi.h
+test.o
+test
