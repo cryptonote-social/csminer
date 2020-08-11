@@ -12,7 +12,7 @@ import (
 
 const (
 	APPLICATION_NAME = "cryptonote.social Monero miner"
-	VERSION_STRING   = "0.1.2"
+	VERSION_STRING   = "0.1.3"
 	STATS_WEBPAGE    = "https://cryptonote.social/xmr"
 	DONATE_USERNAME  = "donate-getmonero-org"
 
