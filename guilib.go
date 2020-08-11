@@ -145,6 +145,13 @@ type StartMinerResponse struct {
 // successful. You should only call this method once.
 func StartMiner(args *StartMinerArgs) *StartMinerResponse {
 	r := &StartMinerResponse{}
+	hr1 := args.ExcludeHourStart
+	hr2 := args.ExcludeHourEnd
+	if hr1 > 24 || hr1 < 0 || hr2 > 24 || hr1 < 0 {
+		r.Code = 3
+		r.Message = "exclude_hour_start and exclude_hour_end must each be between 0 and 24"
+		return r
+	}
 	// Make sure connection was established
 	clMutex.Lock()
 	alive := clientAlive
@@ -164,15 +171,19 @@ func StartMiner(args *StartMinerArgs) *StartMinerResponse {
 		r.Message = "Invalid seed hash from pool server"
 		return r
 	}
-	if !rx.InitRX(newSeed, args.Threads, runtime.GOMAXPROCS(0)) {
-		// TODO: Handle case where it initialized but not w/ hugepages
+	code := rx.InitRX(newSeed, args.Threads, runtime.GOMAXPROCS(0))
+	if code < 0 {
 		crylog.Error("Failed to initialize RandomX")
 		r.Code = -3
 		r.Message = "Failed to initialize RandomX"
 		return r
 	}
+	if code == 2 {
+		r.Code = 2
+	} else {
+		r.Code = 1
+	}
 	go MiningLoop()
-	r.Code = 1
 	return r
 }
 

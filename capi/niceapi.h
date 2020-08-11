@@ -52,3 +52,43 @@ pool_login_response pool_login(const pool_login_args *args) {
   }
   return response;
 }
+
+
+typedef struct start_miner_args {
+  // threads specifies the initial # of threads to mine with. Must be >=1
+  int threads;
+
+  // begin/end hours (24 time) of the time during the day where mining should be paused. Set both
+  // to 0 if there is no excluded range.
+  int exclude_hour_start;
+  int exclude_hour_end;
+} start_miner_args;
+
+typedef struct start_miner_response {
+  // code == 1: miner started successfully.
+  //
+  // code == 2: miner started successfully but hugepages could not be enabled, so mining may be
+  //            slow. You can suggest to the user that a machine restart might help resolve this.
+  //
+  // code > 2: miner failed to start due to bad config, see details in message. For example, an
+  //           invalid number of threads or invalid hour range may have been specified.
+  //
+  // code < 0: non-recoverable error, message will provide details. program should exit after
+  //           showing message.
+  int code;
+  const char* message; // must be freed by the caller
+} start_miner_response;
+
+// call only after successful pool_login. This should only be called once!
+start_miner_response start_miner(const start_miner_args *args) {
+  struct StartMiner_return r =
+    StartMiner((GoInt)args->threads, (GoInt)args->exclude_hour_start, (GoInt)args->exclude_hour_end);
+  start_miner_response response;
+  response.code = (int)r.r0;
+  if (strlen(r.r1) > 0) {
+	response.message = r.r1;
+  } else {
+	response.message = NULL;
+  }
+  return response;
+}

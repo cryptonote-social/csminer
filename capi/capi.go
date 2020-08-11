@@ -26,4 +26,15 @@ func PoolLogin(
 	return resp.Code, C.CString(resp.Message)
 }
 
+//export StartMiner
+func StartMiner(threads int, excludeHrStart, excludeHrEnd int) (code int, message *C.char) {
+	args := &csminer.StartMinerArgs{
+		Threads:          threads,
+		ExcludeHourStart: excludeHrStart,
+		ExcludeHourEnd:   excludeHrEnd,
+	}
+	resp := csminer.StartMiner(args)
+	return resp.Code, C.CString(resp.Message)
+}
+
 func main() {}

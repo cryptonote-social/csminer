@@ -13,22 +13,27 @@ package rx
 import "C"
 
 import (
-	//	"cryptonote.social/crylog"
+	"github.com/cryptonote-social/csminer/crylog"
 	//	"encoding/hex"
 	"unsafe"
 )
 
 // Call this every time the seed hash provided by the daemon changes before performing any hashing.
-func InitRX(seedHash []byte, threads int, initThreads int) bool {
+// return values:
+//   1: success
+//   2: success, but no huge pages.
+//   -1: unexpected failure
+func InitRX(seedHash []byte, threads int, initThreads int) int {
 	if len(seedHash) == 0 {
-		return false
+		crylog.Error("Bad seed hash:", seedHash)
+		return -1
 	}
-	b := C.init_rxlib(
+	i := C.init_rxlib(
 		(*C.char)(unsafe.Pointer(&seedHash[0])),
 		(C.uint32_t)(len(seedHash)),
 		(C.int)(threads),
 		(C.int)(initThreads))
-	return bool(b)
+	return int(i)
 }
 
 func HashUntil(blob []byte, difficulty uint64, thread int, hash []byte, nonce []byte, stopper *uint32) int64 {
