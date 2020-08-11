@@ -79,7 +79,12 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	clMutex.Lock()
 	defer clMutex.Unlock()
 	clientAlive = false
-	err, code, message := cl.Connect(args.Username, args.Config, args.RigID, false /*useTLS*/)
+
+	loginName := args.Username
+	if args.Wallet != "" {
+		loginName = args.Wallet + "." + args.Username
+	}
+	err, code, message := cl.Connect(loginName, args.Config, args.RigID, false /*useTLS*/)
 	if err != nil {
 		if code != 0 {
 			crylog.Error("Pool server did not allow login due to error:")
