@@ -43,12 +43,12 @@ int main(int argc, char* argv[]) {
   // Starting the miner....
   start_miner_args sm_args;
   sm_args.threads = 1;
-  sm_args.exclude_hour_start = 0;
+  sm_args.exclude_hour_start = 27;
   sm_args.exclude_hour_end = 0;
 
   start_miner_response sm_resp = start_miner(&sm_args);
   if (sm_resp.code > 2) {
-    printf("Bad config options specified: %s", sm_resp.message);
+    printf("Bad config options specified: %s\n", sm_resp.message);
     free((void*)sm_resp.message);
     return 3;
   }
