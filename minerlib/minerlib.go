@@ -1,17 +1,17 @@
-package csminer
+package minerlib
 
 import (
+	"github.com/cryptonote-social/csminer/blockchain"
 	"github.com/cryptonote-social/csminer/crylog"
 	"github.com/cryptonote-social/csminer/rx"
 	"github.com/cryptonote-social/csminer/stratum/client"
 
+	"bytes"
 	"encoding/hex"
 	"runtime"
-)
-
-var (
-	//config *csminer.MinerConfig
-	firstJob *client.MultiClientJob
+	"sync"
+	"sync/atomic"
+	"time"
 )
 
 const (
@@ -33,6 +33,33 @@ const (
 	//     indicates miner is actively mining because of user-initiated override
 	MINING_ACTIVE_EXTERNAL_OVERRIDE = 7
 )
+
+var (
+	cl          *client.Client
+	clMutex     sync.Mutex
+	clientAlive bool // true when the stratum client is connected and healthy
+
+	screenIdle        int32 // only mine when this is > 0
+	batteryPower      int32 // only mine when this is > 0
+	manualMinerToggle int32 // whether paused mining has been manually overridden
+
+	// miner client stats
+	sharesAccepted                 int64
+	sharesRejected                 int64
+	poolSideHashes                 int64
+	clientSideHashes, recentHashes int64
+	startTime                      time.Time // when the miner started up
+	lastStatsResetTime             time.Time
+	lastStatsUpdateTime            time.Time
+
+	// miner config
+	threads int
+)
+
+func resetRecentStats() {
+	atomic.StoreInt64(&recentHashes, 0)
+	lastStatsResetTime = time.Now()
+}
 
 type PoolLoginArgs struct {
 	// username: a properly formatted pool username.
@@ -183,12 +210,58 @@ func StartMiner(args *StartMinerArgs) *StartMinerResponse {
 	} else {
 		r.Code = 1
 	}
-	go MiningLoop()
+	threads = args.Threads
+	go MiningLoop(newSeed)
+	startTime = time.Now()
 	return r
 }
 
-func MiningLoop() {
-	// TODO
+func startJobDispatcher() chan *client.MultiChannelJob {
+	go func() {
+		err := cl.DispatchJobs()
+		if err != nil {
+			crylog.Error("Job dispatcher exitted with error:", err)
+			os.Exit(1)
+		}
+		clMutex.Lock()
+		if clientAlive {
+			clientAlive = false
+			cl.Close()
+		}
+		clMutex.Unlock()
+	}()
+}
+
+func MiningLoop(lastSeed []byte) {
 	crylog.Info("Mining loop started")
+
+	jobChannel := startJobDispatcher()
+
+	resetRecentStats()
+	var job *client.MultiClientJob
+	for {
+		select {
+		case job = <-jobChannel:
+			if job == nil {
+				crylog.Warn("stratum client died, reconnecting")
+				// TODO reconnectClient()
+			}
+		}
+		crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
+
+		// Check if we need to reinitialize rx dataset
+		newSeed, err := hex.DecodeString(job.SeedHash)
+		if err != nil {
+			crylog.Error("invalid seed hash:", job.SeedHash)
+			continue
+		}
+		if bytes.Compare(newSeed, lastSeed) != 0 {
+			crylog.Info("New seed:", job.SeedHash)
+			rx.InitRX(newSeed, threads, runtime.GOMAXPROCS(0))
+			lastSeed = newSeed
+			resetRecentStats()
+		}
+	}
+
 	defer crylog.Info("Mining loop terminated")
 }

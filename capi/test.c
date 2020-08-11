@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include "niceapi.h"
 
 int main(int argc, char* argv[]) {
@@ -43,7 +44,7 @@ int main(int argc, char* argv[]) {
   // Starting the miner....
   start_miner_args sm_args;
   sm_args.threads = 1;
-  sm_args.exclude_hour_start = 27;
+  sm_args.exclude_hour_start = 0;
   sm_args.exclude_hour_end = 0;
 
   start_miner_response sm_resp = start_miner(&sm_args);
@@ -61,5 +62,8 @@ int main(int argc, char* argv[]) {
     printf("Huge Pages could not be enabled -- mining may be slow. Consider restarting your machine and trying again.\n");
   } 
   printf("Miner started.\n");
+
+  printf("Sleeping indefinitely\n");
+  sleep(99999);
   return 0;
 }
