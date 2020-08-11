@@ -255,7 +255,6 @@ func connectClient() chan *client.MultiClientJob {
 		err := cl.DispatchJobs()
 		if err != nil {
 			crylog.Error("Job dispatcher exitted with error:", err)
-			os.Exit(1)
 		}
 		clMutex.Lock()
 		if clientAlive {
