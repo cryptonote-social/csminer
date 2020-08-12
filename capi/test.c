@@ -52,10 +52,12 @@ int main(int argc, char* argv[]) {
     if (pl_resp.code > 1) {
       printf("Pool server didn't like login info: %s\n", pl_resp.message);
     }
-    printf("Successful login #1.\n");
-    if (pl_resp.message) {
-      printf("   Pool returned warning: %s\n", pl_resp.message);
-    }
+    if (pl_resp.code == 1) {
+	  printf("Successful login #1.\n");
+	  if (pl_resp.message) {
+		printf("   Pool returned warning: %s\n", pl_resp.message);
+	  }
+	}
 	free((void*)pl_resp.message);
 
     printf("Sleeping for a minute before trying another login.\n");
@@ -71,10 +73,12 @@ int main(int argc, char* argv[]) {
     if (pl_resp.code > 1) {
       printf("Pool server didn't like login 2 info: %s\n", pl_resp.message);
     }
-    printf("Successful login #2.\n");
-    if (pl_resp.message) {
-      printf("   Pool returned warning: %s\n", pl_resp.message);
-    }
+    if (pl_resp.code == 1) {
+	  printf("Successful login #2.\n");
+	  if (pl_resp.message) {
+		printf("   Pool returned warning: %s\n", pl_resp.message);
+	  }
+	}
 	free((void*)pl_resp.message);
 
     printf("Sleeping for a minute before looping again.\n");
