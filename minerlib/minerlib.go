@@ -3,12 +3,14 @@ package minerlib
 import (
 	"github.com/cryptonote-social/csminer/blockchain"
 	"github.com/cryptonote-social/csminer/crylog"
+	"github.com/cryptonote-social/csminer/minerlib/stats"
 	"github.com/cryptonote-social/csminer/rx"
 	"github.com/cryptonote-social/csminer/stratum/client"
 
 	"bytes"
 	"encoding/hex"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,15 +37,6 @@ const (
 )
 
 var (
-	// miner client stats
-	sharesAccepted                 int64
-	sharesRejected                 int64
-	poolSideHashes                 int64
-	clientSideHashes, recentHashes int64
-	startTime                      time.Time // when the miner started up
-	lastStatsResetTime             time.Time
-	lastStatsUpdateTime            time.Time
-
 	// miner config
 	configMutex sync.Mutex
 	plArgs      *PoolLoginArgs
@@ -53,16 +46,6 @@ var (
 	// stratum client
 	cl client.Client
 )
-
-func tallyHashes(hashes int64) {
-	atomic.AddInt64(&clientSideHashes, hashes)
-	atomic.AddInt64(&recentHashes, hashes)
-}
-
-func resetRecentStats() {
-	atomic.StoreInt64(&recentHashes, 0)
-	lastStatsResetTime = time.Now()
-}
 
 type PoolLoginArgs struct {
 	// username: a properly formatted pool username.
@@ -193,7 +176,7 @@ func InitMiner(args *InitMinerArgs) *InitMinerResponse {
 	} else {
 		r.Code = 1
 	}
-	startTime = time.Now()
+	stats.Init()
 	threads = args.Threads
 	go func() {
 		MiningLoop(awaitLogin())
@@ -257,7 +240,6 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 	var wg sync.WaitGroup // used to wait for stopped worker threads to finish
 	var stopper uint32    // atomic int used to signal rxlib worker threads to stop mining
 
-	resetRecentStats()
 	//wasJustMining := false
 
 	for {
@@ -267,6 +249,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 			if job == nil {
 				crylog.Warn("stratum client died")
 				jobChan = reconnectClient()
+				stats.ResetRecent()
 				continue
 			}
 		}
@@ -275,6 +258,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 		// Stop existing mining, if any, and wait for mining threads to finish.
 		atomic.StoreUint32(&stopper, 1)
 		wg.Wait()
+		printStats(true /*isMining*/)
 
 		// Check if we need to reinitialize rx dataset
 		newSeed, err := hex.DecodeString(job.SeedHash)
@@ -286,7 +270,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 			crylog.Info("New seed:", job.SeedHash)
 			rx.SeedRX(newSeed, runtime.GOMAXPROCS(0))
 			lastSeed = newSeed
-			resetRecentStats()
+			stats.ResetRecent()
 		}
 
 		atomic.StoreUint32(&stopper, 0)
@@ -297,6 +281,19 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 	}
 
 	defer crylog.Info("Mining loop terminated")
+}
+
+func printStats(isMining bool) {
+	s := stats.GetSnapshot(isMining)
+	crylog.Info("=====================================")
+	crylog.Info("Shares    [accepted:rejected]:", s.SharesAccepted, ":", s.SharesRejected)
+	crylog.Info("Hashes          [client:pool]:", s.ClientSideHashes, ":", s.PoolSideHashes)
+	if s.RecentHashrate > 0.0 {
+		crylog.Info("Hashes/sec [inception:recent]:",
+			strconv.FormatFloat(s.Hashrate, 'f', 2, 64), ":",
+			strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
+	}
+	crylog.Info("=====================================")
 }
 
 func goMine(wg *sync.WaitGroup, stopper *uint32, job client.MultiClientJob, thread int) {
@@ -314,10 +311,10 @@ func goMine(wg *sync.WaitGroup, stopper *uint32, job client.MultiClientJob, thre
 	for {
 		res := rx.HashUntil(input, uint64(diffTarget), thread, hash, nonce, stopper)
 		if res <= 0 {
-			tallyHashes(-res)
+			stats.TallyHashes(-res)
 			break
 		}
-		tallyHashes(res)
+		stats.TallyHashes(res)
 		crylog.Info("Share found by thread", thread, "w/ target:", blockchain.HashDifficulty(hash))
 		fnonce := hex.EncodeToString(nonce)
 		// If the client is alive, submit the share in a separate thread so we can resume hashing
@@ -335,12 +332,11 @@ func goMine(wg *sync.WaitGroup, stopper *uint32, job client.MultiClientJob, thre
 				return
 			}
 			if len(resp.Error) > 0 {
-				atomic.AddInt64(&sharesRejected, 1)
+				stats.ShareRejected()
 				crylog.Warn("Submit work server error:", jobid, resp.Error)
 				return
 			}
-			atomic.AddInt64(&sharesAccepted, 1)
-			atomic.AddInt64(&poolSideHashes, diffTarget)
+			stats.ShareAccepted(diffTarget)
 		}(fnonce, job.JobID)
 	}
 }
