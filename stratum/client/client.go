@@ -58,7 +58,6 @@ type MultiClientJob struct {
 
 type Client struct {
 	address         string
-	agent           string
 	conn            net.Conn
 	responseChannel chan *SubmitWorkResponse
 	jobChannel      chan *MultiClientJob
@@ -89,6 +88,7 @@ func (cl *Client) Connect(
 	if cl.alive {
 		return errors.New("client already connected. call close first if you wish to reconnect"), 0, ""
 	}
+	cl.address = address
 	if !useTLS {
 		cl.conn, err = net.DialTimeout("tcp", address, time.Second*30)
 	} else {
@@ -117,7 +117,7 @@ func (cl *Client) Connect(
 			Login: uname,
 			Pass:  pw,
 			RigID: rigid,
-			Agent: cl.agent,
+			Agent: agent,
 		},
 	}
 
