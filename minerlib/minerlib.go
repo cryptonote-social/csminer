@@ -9,7 +9,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"runtime"
-	"sync"
+	//	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -35,9 +35,8 @@ const (
 )
 
 var (
-	cl          *client.Client
-	clMutex     sync.Mutex
-	clientAlive bool // true when the stratum client is connected and healthy
+	plArgs *PoolLoginArgs
+	cl     client.Client
 
 	screenIdle        int32 // only mine when this is > 0
 	batteryPower      int32 // only mine when this is > 0
@@ -97,21 +96,16 @@ type PoolLoginResponse struct {
 
 func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	r := &PoolLoginResponse{}
-	cl = client.NewClient("cryptonote.social:5555", args.Agent)
 
 	screenIdle = 0
 	batteryPower = 0
 	manualMinerToggle = 0
 
-	clMutex.Lock()
-	defer clMutex.Unlock()
-	clientAlive = false
-
 	loginName := args.Username
 	if args.Wallet != "" {
 		loginName = args.Wallet + "." + args.Username
 	}
-	err, code, message := cl.Connect(loginName, args.Config, args.RigID, false /*useTLS*/)
+	err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, args.Agent, loginName, args.Config, args.RigID)
 	if err != nil {
 		if code != 0 {
 			crylog.Error("Pool server did not allow login due to error:")
@@ -139,8 +133,8 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 		r.Message = message
 	}
 	// login successful
-	clientAlive = true
 	r.Code = 1
+	plArgs = args
 	return r
 }
 
@@ -180,25 +174,20 @@ func StartMiner(args *StartMinerArgs) *StartMinerResponse {
 		return r
 	}
 	// Make sure connection was established
-	clMutex.Lock()
-	alive := clientAlive
-	firstJob := cl.FirstJob
-	clMutex.Unlock()
-	if !alive {
+	if !cl.IsAlive() {
 		r.Code = -1
 		r.Message = "StartMiner cannot be called until you first make a successful call to PoolLogin"
 		return r
 	}
-
-	newSeed, err := hex.DecodeString(firstJob.SeedHash)
+	jobChan, seedHashStr := cl.StartDispatching()
+	seed, err := hex.DecodeString(seedHashStr)
 	if err != nil {
 		// shouldn't happen?
-		crylog.Error("Invalid seed hash:", firstJob.SeedHash)
 		r.Code = -2
-		r.Message = "Invalid seed hash from pool server"
+		r.Message = "Could not decode initial RandomX seed hash from pool"
 		return r
 	}
-	code := rx.InitRX(newSeed, args.Threads, runtime.GOMAXPROCS(0))
+	code := rx.InitRX(seed, args.Threads, runtime.GOMAXPROCS(0))
 	if code < 0 {
 		crylog.Error("Failed to initialize RandomX")
 		r.Code = -3
@@ -210,41 +199,46 @@ func StartMiner(args *StartMinerArgs) *StartMinerResponse {
 	} else {
 		r.Code = 1
 	}
-	threads = args.Threads
-	go MiningLoop(newSeed)
 	startTime = time.Now()
+	threads = args.Threads
+	go MiningLoop(jobChan, seed)
 	return r
 }
 
-func startJobDispatcher() chan *client.MultiChannelJob {
-	go func() {
-		err := cl.DispatchJobs()
+func reconnectClient(args *PoolLoginArgs) <-chan *client.MultiClientJob {
+	loginName := args.Username
+	if args.Wallet != "" {
+		loginName = args.Wallet + "." + args.Username
+	}
+	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
+	for {
+		err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, args.Agent, loginName, args.Config, args.RigID)
 		if err != nil {
-			crylog.Error("Job dispatcher exitted with error:", err)
-			os.Exit(1)
+			if code != 0 {
+				crylog.Fatal("Pool server did not allow login due to error:", message)
+				panic("can't handle pool login error during reconnect")
+			}
+			crylog.Error("Couldn't connect to pool server:", err)
+			time.Sleep(sleepSec)
+			sleepSec += time.Second
 		}
-		clMutex.Lock()
-		if clientAlive {
-			clientAlive = false
-			cl.Close()
-		}
-		clMutex.Unlock()
-	}()
+		jobChan, _ := cl.StartDispatching()
+		return jobChan
+	}
 }
 
-func MiningLoop(lastSeed []byte) {
+func MiningLoop(jobChan <-chan *client.MultiClientJob, lastSeed []byte) {
 	crylog.Info("Mining loop started")
-
-	jobChannel := startJobDispatcher()
 
 	resetRecentStats()
 	var job *client.MultiClientJob
 	for {
 		select {
-		case job = <-jobChannel:
+		case job = <-jobChan:
 			if job == nil {
-				crylog.Warn("stratum client died, reconnecting")
-				// TODO reconnectClient()
+				crylog.Warn("stratum client died")
+				jobChan = reconnectClient(plArgs)
+				continue
 			}
 		}
 		crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
