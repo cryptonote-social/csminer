@@ -263,8 +263,6 @@ func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, e
 }
 
 func (cl *Client) String() string {
-	cl.mutex.Lock()
-	defer cl.mutex.Unlock()
 	return "stratum_client:" + cl.address
 }
 

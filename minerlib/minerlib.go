@@ -212,18 +212,20 @@ func reconnectClient(args *PoolLoginArgs) <-chan *client.MultiClientJob {
 	}
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
+		crylog.Info("Reconnecting...")
 		err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, args.Agent, loginName, args.Config, args.RigID)
-		if err != nil {
-			if code != 0 {
-				crylog.Fatal("Pool server did not allow login due to error:", message)
-				panic("can't handle pool login error during reconnect")
-			}
-			crylog.Error("Couldn't connect to pool server:", err)
-			time.Sleep(sleepSec)
-			sleepSec += time.Second
+		if err == nil {
+			crylog.Info("Reconnected.")
+			jobChan, _ := cl.StartDispatching()
+			return jobChan
 		}
-		jobChan, _ := cl.StartDispatching()
-		return jobChan
+		if code != 0 {
+			crylog.Fatal("Pool server did not allow login due to error:", message)
+			panic("can't handle pool login error during reconnect")
+		}
+		crylog.Error("Couldn't connect to pool server:", err)
+		time.Sleep(sleepSec)
+		sleepSec += time.Second
 	}
 }
 
