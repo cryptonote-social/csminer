@@ -86,7 +86,8 @@ func (cl *Client) Connect(
 	cl.mutex.Lock()
 	defer cl.mutex.Unlock()
 	if cl.alive {
-		return errors.New("client already connected. call close first if you wish to reconnect"), 0, ""
+		crylog.Warn("client already connected. closing then proceeding to reconnect")
+		cl.close()
 	}
 	cl.address = address
 	if !useTLS {
@@ -172,17 +173,18 @@ func (cl *Client) Connect(
 	return nil, 0, ""
 }
 
-func (cl *Client) StartDispatching() (jobChan <-chan *MultiClientJob, seedHash string) {
+func (cl *Client) StartDispatching() (jobChan <-chan *MultiClientJob) {
 	cl.mutex.Lock()
 	defer cl.mutex.Unlock()
 	if !cl.alive {
 		crylog.Fatal("must call connect successfully first")
-		return nil, ""
+		return nil
 	}
 	go cl.dispatchJobs()
-	return cl.jobChannel, cl.firstJob.SeedHash
+	return cl.jobChannel
 }
 
+// if error is returned then client will be closed and put in not-alive state
 func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce string, connNonce []byte, jobid string, targetDifficulty int64) (*SubmitWorkResponse, error) {
 	submitRequest := &struct {
 		ID     uint64      `json:"id"`
@@ -207,43 +209,45 @@ func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce str
 	return cl.submitRequest(submitRequest)
 }
 
+// if error is returned then client will be closed and put in not-alive state
 func (cl *Client) submitRequest(submitRequest interface{}) (*SubmitWorkResponse, error) {
 	cl.mutex.Lock()
-	defer cl.mutex.Unlock()
+	if !cl.alive {
+		return nil, errors.New("client not alive")
+	}
 	data, err := json.Marshal(submitRequest)
 	if err != nil {
 		crylog.Error("json marshalling failed:", err, "for client:", cl)
+		cl.close()
+		cl.mutex.Unlock()
 		return nil, err
 	}
 	cl.conn.SetWriteDeadline(time.Now().Add(60 * time.Second))
 	data = append(data, '\n')
 	if _, err = cl.conn.Write(data); err != nil {
 		crylog.Error("writing request failed:", err, "for client:", cl)
+		cl.close()
+		cl.mutex.Unlock()
 		return nil, err
 	}
-	timeout := make(chan bool)
-	go func() {
-		time.Sleep(30 * time.Second)
-		timeout <- true
-	}()
-	var response *SubmitWorkResponse
-	select {
-	case response = <-cl.responseChannel:
-	case <-timeout:
-		crylog.Error("response timeout")
-		return nil, fmt.Errorf("submit work failure: response timeout")
-	}
+	respChan := cl.responseChannel
+	cl.mutex.Unlock()
+
+	// await the response
+	response := <-respChan
 	if response == nil {
-		crylog.Error("got nil response")
+		crylog.Error("got nil response, client closed?", cl.IsAlive())
 		return nil, fmt.Errorf("submit work failure: nil response")
 	}
 	if response.ID != SUBMIT_WORK_JSON_ID {
-		crylog.Error("got unexpected response:", response.ID)
+		crylog.Error("got unexpected response:", response.ID, "Closing connection.")
+		cl.Close()
 		return nil, fmt.Errorf("submit work failure: unexpected response")
 	}
 	return response, nil
 }
 
+// if error is returned then client will be closed and put in not-alive state
 func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, error) {
 	submitRequest := &struct {
 		ID     uint64      `json:"id"`
@@ -269,6 +273,10 @@ func (cl *Client) String() string {
 func (cl *Client) Close() {
 	cl.mutex.Lock()
 	defer cl.mutex.Unlock()
+	cl.close()
+}
+
+func (cl *Client) close() {
 	if !cl.alive {
 		crylog.Warn("tried to close dead client")
 		return
@@ -289,7 +297,7 @@ type SubmitWorkResponse struct {
 }
 
 // DispatchJobs will forward incoming jobs to the JobChannel until error is received or the
-// connection is closed.
+// connection is closed. Client will be in not-alive state on return.
 func (cl *Client) dispatchJobs() {
 	cl.mutex.Lock()
 	cl.jobChannel <- cl.firstJob
@@ -322,7 +330,8 @@ func (cl *Client) dispatchJobs() {
 			continue
 		}
 		if response.Job == nil {
-			crylog.Error("Didn't get job:", *response)
+			crylog.Error("Didn't get job as expected:", *response)
+			cl.Close()
 			return
 		}
 		cl.mutex.Lock()

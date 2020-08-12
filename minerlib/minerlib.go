@@ -9,7 +9,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"runtime"
-	//	"sync"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -35,13 +35,6 @@ const (
 )
 
 var (
-	plArgs *PoolLoginArgs
-	cl     client.Client
-
-	screenIdle        int32 // only mine when this is > 0
-	batteryPower      int32 // only mine when this is > 0
-	manualMinerToggle int32 // whether paused mining has been manually overridden
-
 	// miner client stats
 	sharesAccepted                 int64
 	sharesRejected                 int64
@@ -52,8 +45,19 @@ var (
 	lastStatsUpdateTime            time.Time
 
 	// miner config
-	threads int
+	configMutex sync.Mutex
+	plArgs      *PoolLoginArgs
+	threads     int
+	loggedIn    bool
+
+	// stratum client
+	cl client.Client
 )
+
+func tallyHashes(hashes int64) {
+	atomic.AddInt64(&clientSideHashes, hashes)
+	atomic.AddInt64(&recentHashes, hashes)
+}
 
 func resetRecentStats() {
 	atomic.StoreInt64(&recentHashes, 0)
@@ -95,17 +99,19 @@ type PoolLoginResponse struct {
 }
 
 func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
-	r := &PoolLoginResponse{}
-
-	screenIdle = 0
-	batteryPower = 0
-	manualMinerToggle = 0
-
+	configMutex.Lock()
+	defer configMutex.Unlock()
 	loginName := args.Username
 	if args.Wallet != "" {
 		loginName = args.Wallet + "." + args.Username
 	}
-	err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, args.Agent, loginName, args.Config, args.RigID)
+	agent := args.Agent
+	config := args.Config
+	rigid := args.RigID
+	loggedIn = false
+
+	r := &PoolLoginResponse{}
+	err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
 	if err != nil {
 		if code != 0 {
 			crylog.Error("Pool server did not allow login due to error:")
@@ -132,13 +138,15 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 		crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
 		r.Message = message
 	}
+
 	// login successful
-	r.Code = 1
+	loggedIn = true
 	plArgs = args
+	r.Code = 1
 	return r
 }
 
-type StartMinerArgs struct {
+type InitMinerArgs struct {
 	// threads specifies the initial # of threads to mine with. Must be >=1
 	Threads int
 
@@ -147,13 +155,13 @@ type StartMinerArgs struct {
 	ExcludeHourStart, ExcludeHourEnd int
 }
 
-type StartMinerResponse struct {
-	// code == 1: miner started successfully.
+type InitMinerResponse struct {
+	// code == 1: miner init successful
 	//
-	// code == 2: miner started successfully but hugepages could not be enabled, so mining may be
+	// code == 2: miner init successful but hugepages could not be enabled, so mining may be
 	//            slow. You can suggest to the user that a machine restart might help resolve this.
 	//
-	// code > 2: miner failed to start due to bad config, see details in message. For example, an
+	// code > 2: miner init failed due to bad config, see details in message. For example, an
 	//           invalid number of threads or invalid hour range may have been specified.
 	//
 	// code < 0: non-recoverable error, message will provide details. program should exit after
@@ -162,10 +170,10 @@ type StartMinerResponse struct {
 	Message string
 }
 
-// StartMiner configures the miner and must be called only after a call to PoolLogin was
-// successful. You should only call this method once.
-func StartMiner(args *StartMinerArgs) *StartMinerResponse {
-	r := &StartMinerResponse{}
+// InitMiner configures the miner and must be called exactly once before any other method
+// is called.
+func InitMiner(args *InitMinerArgs) *InitMinerResponse {
+	r := &InitMinerResponse{}
 	hr1 := args.ExcludeHourStart
 	hr2 := args.ExcludeHourEnd
 	if hr1 > 24 || hr1 < 0 || hr2 > 24 || hr1 < 0 {
@@ -173,21 +181,7 @@ func StartMiner(args *StartMinerArgs) *StartMinerResponse {
 		r.Message = "exclude_hour_start and exclude_hour_end must each be between 0 and 24"
 		return r
 	}
-	// Make sure connection was established
-	if !cl.IsAlive() {
-		r.Code = -1
-		r.Message = "StartMiner cannot be called until you first make a successful call to PoolLogin"
-		return r
-	}
-	jobChan, seedHashStr := cl.StartDispatching()
-	seed, err := hex.DecodeString(seedHashStr)
-	if err != nil {
-		// shouldn't happen?
-		r.Code = -2
-		r.Message = "Could not decode initial RandomX seed hash from pool"
-		return r
-	}
-	code := rx.InitRX(seed, args.Threads, runtime.GOMAXPROCS(0))
+	code := rx.InitRX(args.Threads)
 	if code < 0 {
 		crylog.Error("Failed to initialize RandomX")
 		r.Code = -3
@@ -201,49 +195,86 @@ func StartMiner(args *StartMinerArgs) *StartMinerResponse {
 	}
 	startTime = time.Now()
 	threads = args.Threads
-	go MiningLoop(jobChan, seed)
+	go func() {
+		MiningLoop(awaitLogin())
+	}()
 	return r
 }
 
-func reconnectClient(args *PoolLoginArgs) <-chan *client.MultiClientJob {
-	loginName := args.Username
-	if args.Wallet != "" {
-		loginName = args.Wallet + "." + args.Username
+func awaitLogin() <-chan *client.MultiClientJob {
+	crylog.Info("Awaiting login")
+	for {
+		configMutex.Lock()
+		li := loggedIn
+		configMutex.Unlock()
+		if li {
+			crylog.Info("Logged in!")
+			return cl.StartDispatching()
+		}
+		time.Sleep(time.Second)
 	}
+}
+
+func reconnectClient() <-chan *client.MultiClientJob {
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
+		configMutex.Lock()
+		if !loggedIn {
+			// Client is being reconnected by the user, await until successful.
+			configMutex.Unlock()
+			return awaitLogin()
+		}
+		loginName := plArgs.Username
+		if plArgs.Wallet != "" {
+			loginName = plArgs.Wallet + "." + plArgs.Username
+		}
+		agent := plArgs.Agent
+		config := plArgs.Config
+		rigid := plArgs.RigID
+
 		crylog.Info("Reconnecting...")
-		err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, args.Agent, loginName, args.Config, args.RigID)
+		err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
+		configMutex.Unlock()
 		if err == nil {
-			crylog.Info("Reconnected.")
-			jobChan, _ := cl.StartDispatching()
-			return jobChan
+			return awaitLogin()
 		}
 		if code != 0 {
 			crylog.Fatal("Pool server did not allow login due to error:", message)
 			panic("can't handle pool login error during reconnect")
 		}
 		crylog.Error("Couldn't connect to pool server:", err)
+		crylog.Info("Sleeping for", sleepSec, "seconds before trying again.")
 		time.Sleep(sleepSec)
 		sleepSec += time.Second
 	}
 }
 
-func MiningLoop(jobChan <-chan *client.MultiClientJob, lastSeed []byte) {
+func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 	crylog.Info("Mining loop started")
+	lastSeed := []byte{}
+
+	// Synchronization vars
+	var wg sync.WaitGroup // used to wait for stopped worker threads to finish
+	var stopper uint32    // atomic int used to signal rxlib worker threads to stop mining
 
 	resetRecentStats()
-	var job *client.MultiClientJob
+	//wasJustMining := false
+
 	for {
+		var job *client.MultiClientJob
 		select {
 		case job = <-jobChan:
 			if job == nil {
 				crylog.Warn("stratum client died")
-				jobChan = reconnectClient(plArgs)
+				jobChan = reconnectClient()
 				continue
 			}
 		}
 		crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
+
+		// Stop existing mining, if any, and wait for mining threads to finish.
+		atomic.StoreUint32(&stopper, 1)
+		wg.Wait()
 
 		// Check if we need to reinitialize rx dataset
 		newSeed, err := hex.DecodeString(job.SeedHash)
@@ -253,11 +284,63 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, lastSeed []byte) {
 		}
 		if bytes.Compare(newSeed, lastSeed) != 0 {
 			crylog.Info("New seed:", job.SeedHash)
-			rx.InitRX(newSeed, threads, runtime.GOMAXPROCS(0))
+			rx.SeedRX(newSeed, runtime.GOMAXPROCS(0))
 			lastSeed = newSeed
 			resetRecentStats()
+		}
+
+		atomic.StoreUint32(&stopper, 0)
+		for i := 0; i < threads; i++ {
+			wg.Add(1)
+			go goMine(&wg, &stopper, *job, i /*thread*/)
 		}
 	}
 
 	defer crylog.Info("Mining loop terminated")
+}
+
+func goMine(wg *sync.WaitGroup, stopper *uint32, job client.MultiClientJob, thread int) {
+	defer wg.Done()
+	input, err := hex.DecodeString(job.Blob)
+	diffTarget := blockchain.TargetToDifficulty(job.Target)
+	if err != nil {
+		crylog.Error("invalid blob:", job.Blob)
+		return
+	}
+
+	hash := make([]byte, 32)
+	nonce := make([]byte, 4)
+
+	for {
+		res := rx.HashUntil(input, uint64(diffTarget), thread, hash, nonce, stopper)
+		if res <= 0 {
+			tallyHashes(-res)
+			break
+		}
+		tallyHashes(res)
+		crylog.Info("Share found by thread", thread, "w/ target:", blockchain.HashDifficulty(hash))
+		fnonce := hex.EncodeToString(nonce)
+		// If the client is alive, submit the share in a separate thread so we can resume hashing
+		// immediately, otherwise wait until it's alive.
+		for {
+			if cl.IsAlive() {
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		go func(fnonce, jobid string) {
+			resp, err := cl.SubmitWork(fnonce, jobid)
+			if err != nil {
+				crylog.Warn("Submit work client failure:", jobid, err)
+				return
+			}
+			if len(resp.Error) > 0 {
+				atomic.AddInt64(&sharesRejected, 1)
+				crylog.Warn("Submit work server error:", jobid, resp.Error)
+				return
+			}
+			atomic.AddInt64(&sharesAccepted, 1)
+			atomic.AddInt64(&poolSideHashes, diffTarget)
+		}(fnonce, job.JobID)
+	}
 }

@@ -19,20 +19,27 @@ import (
 )
 
 // Call this every time the seed hash provided by the daemon changes before performing any hashing.
+// Only call when all existing threads are stopped. Returns false if an unrecoverable error
+// occurred.
+func SeedRX(seedHash []byte, initThreads int) bool {
+	if len(seedHash) == 0 {
+		crylog.Error("Bad seed hash:", seedHash)
+		return false
+	}
+	b := C.seed_rxlib(
+		(*C.char)(unsafe.Pointer(&seedHash[0])),
+		(C.uint32_t)(len(seedHash)),
+		(C.int)(initThreads))
+	return bool(b)
+}
+
+// Call this once.
 // return values:
 //   1: success
 //   2: success, but no huge pages.
 //   -1: unexpected failure
-func InitRX(seedHash []byte, threads int, initThreads int) int {
-	if len(seedHash) == 0 {
-		crylog.Error("Bad seed hash:", seedHash)
-		return -1
-	}
-	i := C.init_rxlib(
-		(*C.char)(unsafe.Pointer(&seedHash[0])),
-		(C.uint32_t)(len(seedHash)),
-		(C.int)(threads),
-		(C.int)(initThreads))
+func InitRX(threads int) int {
+	i := C.init_rxlib((C.int)(threads))
 	return int(i)
 }
 
