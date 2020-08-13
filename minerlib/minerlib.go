@@ -126,6 +126,7 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	loggedIn = true
 	plArgs = args
 	r.Code = 1
+	go stats.RefreshPoolStats(plArgs.Username)
 	return r
 }
 
@@ -189,9 +190,13 @@ func awaitLogin() <-chan *client.MultiClientJob {
 	for {
 		configMutex.Lock()
 		li := loggedIn
+		var uname string
+		if plArgs != nil {
+			uname = plArgs.Username
+		}
 		configMutex.Unlock()
 		if li {
-			crylog.Info("Logged in!")
+			crylog.Info("Logged in:", uname)
 			return cl.StartDispatching()
 		}
 		time.Sleep(time.Second)
@@ -249,6 +254,8 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 			if job == nil {
 				crylog.Warn("stratum client died")
 				jobChan = reconnectClient()
+				atomic.StoreUint32(&stopper, 1)
+				wg.Wait()
 				stats.ResetRecent()
 				continue
 			}
@@ -286,12 +293,31 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 func printStats(isMining bool) {
 	s := stats.GetSnapshot(isMining)
 	crylog.Info("=====================================")
-	crylog.Info("Shares    [accepted:rejected]:", s.SharesAccepted, ":", s.SharesRejected)
-	crylog.Info("Hashes          [client:pool]:", s.ClientSideHashes, ":", s.PoolSideHashes)
+	//crylog.Info("Shares    [accepted:rejected]:", s.SharesAccepted, ":", s.SharesRejected)
+	//crylog.Info("Hashes          [client:pool]:", s.ClientSideHashes, ":", s.PoolSideHashes)
 	if s.RecentHashrate > 0.0 {
-		crylog.Info("Hashes/sec [inception:recent]:",
-			strconv.FormatFloat(s.Hashrate, 'f', 2, 64), ":",
-			strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
+		crylog.Info("Hashrate:", strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
+		//strconv.FormatFloat(s.Hashrate, 'f', 2, 64), ":",
+	}
+	configMutex.Lock()
+	uname := plArgs.Username
+	configMutex.Unlock()
+	if s.PoolUsername != "" && uname == s.PoolUsername {
+		crylog.Info("== Pool stats last updated", s.SecondsOld, "seconds ago:")
+		crylog.Info("User               :", s.PoolUsername)
+		crylog.Info("Lifetime hashes    :", s.LifetimeHashes)
+		crylog.Info("Paid               :", strconv.FormatFloat(s.Paid, 'f', 12, 64), "$XMR")
+		if s.Owed > 0.0 {
+			crylog.Info("Owed               :", strconv.FormatFloat(s.Owed, 'f', 12, 64), "$XMR")
+		}
+		crylog.Info("Accumulated        :", strconv.FormatFloat(s.Accumulated, 'f', 12, 64), "$XMR")
+		crylog.Info("Time to next reward:", s.TimeToReward)
+		if len(s.TimeToReward) > 0 {
+
+		}
+	}
+	if uname != s.PoolUsername || s.SecondsOld > 120 {
+		stats.RefreshPoolStats(uname)
 	}
 	crylog.Info("=====================================")
 }
@@ -315,7 +341,7 @@ func goMine(wg *sync.WaitGroup, stopper *uint32, job client.MultiClientJob, thre
 			break
 		}
 		stats.TallyHashes(res)
-		crylog.Info("Share found by thread", thread, "w/ target:", blockchain.HashDifficulty(hash))
+		crylog.Info("Share found by thread:", thread, "Target:", blockchain.HashDifficulty(hash))
 		fnonce := hex.EncodeToString(nonce)
 		// If the client is alive, submit the share in a separate thread so we can resume hashing
 		// immediately, otherwise wait until it's alive.

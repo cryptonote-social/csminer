@@ -1,6 +1,8 @@
 package stats
 
 import (
+	//"github.com/cryptonote-social/csminer/crylog"
+
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
@@ -23,7 +25,7 @@ var (
 	clientSideHashes, recentHashes int64
 
 	// pool stats
-	lastPoolUserQuery       string
+	lastPoolUsername        string
 	lastPoolUpdateTime      time.Time
 	ppropProgress           float64
 	hashrate1, hashrate24   int64
@@ -77,6 +79,13 @@ type Snapshot struct {
 	SharesAccepted, SharesRejected   int64
 	ClientSideHashes, PoolSideHashes int64
 	Hashrate, RecentHashrate         float64
+
+	// Pool stats
+	PoolUsername            string
+	LifetimeHashes          int64
+	Paid, Owed, Accumulated float64
+	TimeToReward            string
+	SecondsOld              int // how many seconds out of date the pool stats are
 }
 
 func GetSnapshot(isMining bool) *Snapshot {
@@ -103,6 +112,16 @@ func GetSnapshot(isMining bool) *Snapshot {
 		r.Hashrate = float64(clientSideHashes) / elapsedOverall
 		r.RecentHashrate = float64(recentHashes) / elapsedRecent
 	}
+
+	if lastPoolUsername != "" {
+		r.PoolUsername = lastPoolUsername
+		r.LifetimeHashes = lifetimeHashes
+		r.Paid = paid
+		r.Owed = owed
+		r.Accumulated = accumulated
+		r.TimeToReward = timeToReward
+	}
+	r.SecondsOld = int(time.Now().Sub(lastPoolUpdateTime).Seconds())
 	return r
 }
 
@@ -192,14 +211,17 @@ func RefreshPoolStats(username string) error {
 	}
 
 	mutex.Lock()
-	lastPoolUserQuery = username
+	lastPoolUsername = username
 	lastPoolUpdateTime = time.Now()
-	ppropProgress = s.CycleProgress / (1.0 + ps.Margin)
 	hashrate1 = s.Hashrate1
 	hashrate24 = s.Hashrate24
 	lifetimeHashes = s.LifetimeHashes
 	paid = s.AmountPaid
 	owed = s.AmountOwed
+	if ps.NextBlockReward > 0.0 && s.CycleProgress > 0.0 {
+		progress := s.CycleProgress / (1.0 + ps.Margin)
+		accumulated = ps.NextBlockReward * progress
+	}
 	timeToReward = ttreward
 	mutex.Unlock()
 
