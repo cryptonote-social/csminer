@@ -37,4 +37,21 @@ func InitMiner(threads int, excludeHrStart, excludeHrEnd int) (code int, message
 	return resp.Code, C.CString(resp.Message)
 }
 
+//export GetMinerState
+func GetMinerState() (
+	miningActivity int,
+	threads int,
+	recentHashrate float64,
+	username *C.char,
+	secondsOld int,
+	lifetimeHashes int64,
+	paid, owed, accumulated float64,
+	timeToReward *C.char) {
+	resp := minerlib.GetMiningState()
+
+	return resp.MiningActivity, resp.Threads, resp.RecentHashrate,
+		C.CString(resp.PoolUsername), resp.SecondsOld, resp.LifetimeHashes,
+		resp.Paid, resp.Owed, resp.Accumulated, C.CString(resp.TimeToReward)
+}
+
 func main() {}

@@ -17,23 +17,24 @@ import (
 )
 
 const (
+	//	MINING_PAUSED_NO_CONNECTION = -2
 	//     indicates connection to pool server is lost; miner will continue trying to reconnect.
-	MINING_PAUSED_NO_CONNECTION = 2
+	//
+	//	MINING_PAUSED_SCREEN_ACTIVITY = -3
 	//     indicates miner is paused because the screen is active and miner is configured to mine
 	//     only when idle.
-	MINING_PAUSED_SCREEN_ACTIVITY = 3
-
+	//
+	//	MINING_PAUSED_BATTERY_POWER = -4
 	//     indicates miner is paused because the machine is operating on battery power.
-	MINING_PAUSED_BATTERY_POWER = 4
-
-	//     indicates miner is paused because of a user-initiated override
-	MINING_PAUSED_USER_OVERRIDE = 5
-
+	//
+	//	MINING_PAUSED_USER_OVERRIDE = -5
+	//     indicates miner is paused, and is in the "user focred mining pause" state.
+	//
+	MINING_ACTIVE = 1
 	//     indicates miner is actively mining
-	MINING_ACTIVE = 6
+	//
+	//	MINING_ACTIVE_USER_OVERRIDE = 2
 
-	//     indicates miner is actively mining because of user-initiated override
-	MINING_ACTIVE_EXTERNAL_OVERRIDE = 7
 )
 
 var (
@@ -288,6 +289,23 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 	}
 
 	defer crylog.Info("Mining loop terminated")
+}
+
+type GetMiningStateResponse struct {
+	stats.Snapshot
+	MiningActivity int
+	Threads        int
+}
+
+func GetMiningState() *GetMiningStateResponse {
+	s := stats.GetSnapshot(true /*TODO: fix*/)
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	return &GetMiningStateResponse{
+		Snapshot:       *s,
+		MiningActivity: MINING_ACTIVE,
+		Threads:        threads,
+	}
 }
 
 func printStats(isMining bool) {

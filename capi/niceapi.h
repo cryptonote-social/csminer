@@ -48,6 +48,7 @@ pool_login_response pool_login(const pool_login_args *args) {
   if (strlen(r.r1) > 0) {
 	response.message = r.r1;
   } else {
+	free((void*)r.r1);
 	response.message = NULL;
   }
   return response;
@@ -88,7 +89,89 @@ init_miner_response init_miner(const init_miner_args *args) {
   if (strlen(r.r1) > 0) {
 	response.message = r.r1;
   } else {
+	free((void*)r.r1);
 	response.message = NULL;
   }
+  return response;
+}
+
+typedef struct get_miner_state_response {
+  // Valid values for mining_activity fall into two cateogories: MINING_PAUSED (all < 0)
+  // and MINING_ACTIVE (all > 0)
+  //
+  //	MINING_PAUSED_NO_CONNECTION = -2
+  //     indicates connection to pool server is lost; miner will continue trying to reconnect.
+  //
+  //	MINING_PAUSED_SCREEN_ACTIVITY = -3
+  //     indicates miner is paused because the screen is active and miner is configured to mine
+  //     only when idle.
+  //
+  //	MINING_PAUSED_BATTERY_POWER = -4
+  //     indicates miner is paused because the machine is operating on battery power.
+  //
+  //	MINING_PAUSED_USER_OVERRIDE = -5
+  //     indicates miner is paused, and is in the "user focred mining pause" state.
+  //
+  //	MINING_ACTIVE = 1
+  //     indicates miner is actively mining
+  //
+  //	MINING_ACTIVE_USER_OVERRIDE = 2
+  //     indicates miner is actively mining, and is in "user forced active mining override" state.
+  int  mining_activity;
+
+  int  threads;  // number of threads actively mining
+
+  float recent_hashrate; // hashrate of the miner, computed over its most recent activity
+					   // period. This stat is always 100% up to date.
+
+
+  // username of the miner whose pool stats appear below. Small chance this username may not match
+  // the currently logged in user if a new login recently took place, so always check the username
+  // matches before displaying the stats below. This value may be null (no user currently logged in)
+  // in which case stats below should be ignored.
+  //
+  // NOTE: you must free() username
+  const char* username; 
+
+  // Stats below aremay be stale, with the seconds_old field specifying in seconds how out of
+  // date they are.
+  int seconds_old;
+  
+  long lifetime_hashes; // total sum of hashes contributed to the pool under this username
+
+  // Amounts of $XMR paid, owed, and accumulated respectively. These floats are valid to 12 decimal
+  // points.  Accumulated $XMR is just an estimate of what the miner would earn should the next
+  // block payout take place immediately.
+  double paid;
+  double owed;
+  double accumulated;
+
+  // NOTE: you must free() time_to_reward
+  const char* time_to_reward; // An estimate of the time to next reward in a pretty-printable
+							  // format, e.g. "3.5 days". This is just an estimate based on pool
+							  // hashrate and other dynamic factors
+} get_miner_state_response;
+
+get_miner_state_response get_miner_state() {
+  struct GetMinerState_return r = GetMinerState();
+  get_miner_state_response response;
+  response.mining_activity = (int)r.r0;
+  response.threads = (int)r.r1;
+  response.recent_hashrate = (float)r.r2;
+  if (strlen(r.r3) > 0) {
+	response.username = r.r3;
+	response.time_to_reward = r.r9;
+  } else {
+	response.username = NULL;
+	response.time_to_reward = NULL;
+	free((void*)r.r3);
+	free((void*)r.r9);
+  }
+  response.seconds_old = (int)r.r4;
+  response.lifetime_hashes = (long)r.r5;
+  response.paid = (float)r.r6;
+  response.owed = (float)r.r7;
+  response.accumulated = (float)r.r8;
+
   return response;
 }

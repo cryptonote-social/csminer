@@ -63,6 +63,12 @@ int main(int argc, char* argv[]) {
     printf("Sleeping for a minute before trying another login.\n");
     sleep(60);
 
+	get_miner_state_response ms_resp = get_miner_state();
+	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
+	printf("Threads active: %d\n", ms_resp.threads);
+	free((void*)ms_resp.username);
+	free((void*)ms_resp.time_to_reward);
+
     printf("Trying to login with a new user (donate-getmonero-org).\n");
     pl_args.username = "donate-getmonero-org";
     pl_resp = pool_login(&pl_args);
@@ -83,6 +89,11 @@ int main(int argc, char* argv[]) {
 
     printf("Sleeping for a minute before looping again.\n");
     sleep(60);
+	ms_resp = get_miner_state();
+	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
+	printf("Threads active: %d\n", ms_resp.threads);
+	free((void*)ms_resp.username);
+	free((void*)ms_resp.time_to_reward);
   }
   return 0;
 }
