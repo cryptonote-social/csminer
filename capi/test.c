@@ -61,11 +61,16 @@ int main(int argc, char* argv[]) {
 	free((void*)pl_resp.message);
 
     printf("Sleeping for 2 minutes before trying another login.\n");
-    sleep(120);
+    sleep(60);
+	get_miner_state_response ms_resp = get_miner_state();
+	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
+	printf("Threads active: %d\n", ms_resp.threads);
+	free((void*)ms_resp.username);
+	free((void*)ms_resp.time_to_reward);
 
     increase_threads();
-
-	get_miner_state_response ms_resp = get_miner_state();
+    sleep(60);
+	ms_resp = get_miner_state();
 	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
 	printf("Threads active: %d\n", ms_resp.threads);
 	free((void*)ms_resp.username);
@@ -90,7 +95,7 @@ int main(int argc, char* argv[]) {
 	free((void*)pl_resp.message);
 
     printf("Sleeping for 2 minutes before looping again.\n");
-    sleep(120);
+    sleep(60);
 	ms_resp = get_miner_state();
 	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
 	printf("Threads active: %d\n", ms_resp.threads);
@@ -98,6 +103,12 @@ int main(int argc, char* argv[]) {
 	free((void*)ms_resp.time_to_reward);
 
     decrease_threads();
+    sleep(60);
+	ms_resp = get_miner_state();
+	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
+	printf("Threads active: %d\n", ms_resp.threads);
+	free((void*)ms_resp.username);
+	free((void*)ms_resp.time_to_reward);
   }
   return 0;
 }

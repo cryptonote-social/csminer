@@ -64,4 +64,24 @@ func DecreaseThreads() {
 	minerlib.DecreaseThreads()
 }
 
+//export OverrideMiningActivityState
+func OverrideMiningActivityState(mine bool) {
+	minerlib.OverrideMiningActivityState(mine)
+}
+
+//export RemoveMiningActivityOverride
+func RemoveMiningActivityOverride() {
+	minerlib.RemoveMiningActivityOverride()
+}
+
+//export ReportLockScreenState
+func ReportLockScreenState(locked bool) {
+	minerlib.ReportLockScreenState(locked)
+}
+
+//export ReportPowerState
+func ReportPowerState(onBattery bool) {
+	minerlib.ReportPowerState(onBattery)
+}
+
 func main() {}

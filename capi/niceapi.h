@@ -188,3 +188,30 @@ void increase_threads() {
 void decrease_threads() {
   DecreaseThreads();
 }
+
+// override_mining_state can be used to force mining, or force mining to pause depending on the
+// value of the parameter.
+void override_mining_activity_state(bool mine) {
+  OverrideMiningActivityState(mine);
+}
+ 
+// remove_mining_override will revert any previous overridden mining state and allow the
+// miner to use its usual means of determining when to mine.
+void remove_mining_activity_override() {
+  RemoveMiningActivityOverride();
+}
+
+// report_lock_screen_state is used to tell the miner when the screen is locked (true) or unlocked (false).
+// On startup and before this method is ever invoked the miner will assume the screen is unlocked.
+// If screen-saver state monitoring is turned off, you need to call this once with a value of true.
+void report_lock_screen_state(bool locked) {
+  ReportLockScreenState(locked);
+}
+ 
+// report_power_state is used to tell the miner when the machine is running on battery power (true)
+// or power adapter (false).
+// On startup and before this method is ever invoked the miner will assume the machine is plugged
+// in with its power adapter.
+void report_power_state(bool on_battery_power) {
+  ReportPowerState(on_battery_power);
+}

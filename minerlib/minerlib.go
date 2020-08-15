@@ -258,8 +258,8 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 
 	//wasJustMining := false
 
+	var job *client.MultiClientJob
 	for {
-		var job *client.MultiClientJob
 		select {
 		case job = <-jobChan:
 			if job == nil {
@@ -271,7 +271,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 				continue
 			}
 		case poke := <-pokeChannel:
-			pokeRes := handlePoke(true /*wasJustMining*/, poke, &stopper, wg)
+			pokeRes := handlePoke(true /*wasJustMining*/, poke, &stopper, &wg)
 			switch pokeRes {
 			case HANDLED:
 				continue
@@ -315,7 +315,8 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 	defer crylog.Info("Mining loop terminated")
 }
 
-func handlePoke(wasMining bool, poke int, stopper *uint32, wg sync.WaitGroup) int {
+func handlePoke(wasMining bool, poke int, stopper *uint32, wg *sync.WaitGroup) int {
+	crylog.Info("Handling poke:", poke, wasMining)
 	if poke == INCREASE_THREADS_POKE {
 		atomic.StoreUint32(stopper, 1)
 		wg.Wait()
@@ -475,4 +476,24 @@ func goMine(wg *sync.WaitGroup, stopper *uint32, job client.MultiClientJob, thre
 			stats.ShareAccepted(diffTarget)
 		}(fnonce, job.JobID)
 	}
+}
+
+func OverrideMiningActivityState(mine bool) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+}
+
+func RemoveMiningActivityOverride() {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+}
+
+func ReportLockScreenState(locked bool) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+}
+
+func ReportPowerState(onBattery bool) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
 }
