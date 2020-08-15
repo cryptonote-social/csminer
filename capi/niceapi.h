@@ -176,3 +176,15 @@ get_miner_state_response get_miner_state() {
 
   return response;
 }
+
+// Increase the number of threads by 1. This may fail. get_miner_state will
+// always report the true number of current threads.
+void increase_threads() {
+  IncreaseThreads();
+}
+
+// Decrease the number of threads by 1. This may fail. get_miner_state will
+// always report the true number of current threads.
+void decrease_threads() {
+  DecreaseThreads();
+}

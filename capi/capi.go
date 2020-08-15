@@ -54,4 +54,14 @@ func GetMinerState() (
 		resp.Paid, resp.Owed, resp.Accumulated, C.CString(resp.TimeToReward)
 }
 
+//export IncreaseThreads
+func IncreaseThreads() {
+	minerlib.IncreaseThreads()
+}
+
+//export DecreaseThreads
+func DecreaseThreads() {
+	minerlib.DecreaseThreads()
+}
+
 func main() {}

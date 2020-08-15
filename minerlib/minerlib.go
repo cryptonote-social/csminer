@@ -35,6 +35,12 @@ const (
 	//
 	//	MINING_ACTIVE_USER_OVERRIDE = 2
 
+	// for PokeChannel stuff:
+	HANDLED    = 1
+	USE_CACHED = 2
+
+	INCREASE_THREADS_POKE = 6
+	DECREASE_THREADS_POKE = 7
 )
 
 var (
@@ -46,6 +52,9 @@ var (
 
 	// stratum client
 	cl client.Client
+
+	// used to send messages to main job loop to take various actions
+	pokeChannel chan int
 )
 
 type PoolLoginArgs struct {
@@ -158,6 +167,7 @@ type InitMinerResponse struct {
 // InitMiner configures the miner and must be called exactly once before any other method
 // is called.
 func InitMiner(args *InitMinerArgs) *InitMinerResponse {
+	pokeChannel = make(chan int, 5) // use small amount of buffering for when internet may be bad
 	r := &InitMinerResponse{}
 	hr1 := args.ExcludeHourStart
 	hr2 := args.ExcludeHourEnd
@@ -260,6 +270,20 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 				stats.ResetRecent()
 				continue
 			}
+		case poke := <-pokeChannel:
+			pokeRes := handlePoke(true /*wasJustMining*/, poke, &stopper, wg)
+			switch pokeRes {
+			case HANDLED:
+				continue
+			case USE_CACHED:
+				if job == nil {
+					crylog.Warn("no job to work on")
+					continue
+				}
+			default:
+				crylog.Error("mystery poke:", pokeRes)
+				continue
+			}
 		}
 		crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 
@@ -291,6 +315,48 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 	defer crylog.Info("Mining loop terminated")
 }
 
+func handlePoke(wasMining bool, poke int, stopper *uint32, wg sync.WaitGroup) int {
+	if poke == INCREASE_THREADS_POKE {
+		atomic.StoreUint32(stopper, 1)
+		wg.Wait()
+		t := rx.AddThread()
+		if t < 0 {
+			crylog.Error("Failed to add another thread")
+			return USE_CACHED
+		}
+		configMutex.Lock()
+		threads = t
+		configMutex.Unlock()
+		crylog.Info("Increased # of threads to:", t)
+		stats.ResetRecent()
+		return USE_CACHED
+	}
+	if poke == DECREASE_THREADS_POKE {
+		atomic.StoreUint32(stopper, 1)
+		wg.Wait()
+		t := rx.RemoveThread()
+		if t < 0 {
+			crylog.Error("Failed to decrease threads")
+			return USE_CACHED
+		}
+		configMutex.Lock()
+		threads = t
+		configMutex.Unlock()
+		crylog.Info("Decreased # of threads to:", t)
+		stats.ResetRecent()
+		return USE_CACHED
+	}
+	/*
+		isMiningNow := miningActive()
+		if wasMining != isMiningNow {
+			// mining state was toggled so fall through using last received job which will
+			// appropriately halt or restart any mining threads and/or print stats.
+			return USE_CACHED
+		}
+	*/
+	return HANDLED
+}
+
 type GetMiningStateResponse struct {
 	stats.Snapshot
 	MiningActivity int
@@ -313,9 +379,23 @@ func updatePoolStats(isMining bool) {
 	configMutex.Lock()
 	uname := plArgs.Username
 	configMutex.Unlock()
-	if uname != s.PoolUsername || s.SecondsOld > 5 {
+	if uname != "" && (uname != s.PoolUsername || s.SecondsOld > 5) {
 		stats.RefreshPoolStats(uname)
 	}
+}
+
+func IncreaseThreads() {
+	pokeJobDispatcher(INCREASE_THREADS_POKE)
+}
+
+func DecreaseThreads() {
+	pokeJobDispatcher(DECREASE_THREADS_POKE)
+}
+
+// Poke the job dispatcher. Returns false if the client is not currently alive.
+func pokeJobDispatcher(pokeMsg int) {
+	crylog.Info("Poking job dispatcher:", pokeMsg)
+	pokeChannel <- pokeMsg
 }
 
 func printStats(isMining bool) {
@@ -329,6 +409,7 @@ func printStats(isMining bool) {
 	}
 	configMutex.Lock()
 	uname := plArgs.Username
+	crylog.Info("Threads:", threads)
 	configMutex.Unlock()
 	if s.PoolUsername != "" && uname == s.PoolUsername {
 		crylog.Info("== Pool stats last updated", s.SecondsOld, "seconds ago:")
@@ -343,9 +424,9 @@ func printStats(isMining bool) {
 		if len(s.TimeToReward) > 0 {
 
 		}
-	}
-	if uname != s.PoolUsername || s.SecondsOld > 120 {
-		stats.RefreshPoolStats(uname)
+		if uname != s.PoolUsername || s.SecondsOld > 120 {
+			stats.RefreshPoolStats(uname)
+		}
 	}
 	crylog.Info("=====================================")
 }
