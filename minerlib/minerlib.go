@@ -372,7 +372,7 @@ func handlePoke(wasMining bool, poke int, stopper *uint32, wg *sync.WaitGroup) i
 		configMutex.Lock()
 		t := rx.AddThread()
 		if t < 0 {
-			configMutex.UnLock()
+			configMutex.Unlock()
 			crylog.Error("Failed to add another thread")
 			return USE_CACHED
 		}
