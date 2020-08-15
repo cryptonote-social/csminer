@@ -369,12 +369,13 @@ func handlePoke(wasMining bool, poke int, stopper *uint32, wg *sync.WaitGroup) i
 	if poke == INCREASE_THREADS_POKE {
 		atomic.StoreUint32(stopper, 1)
 		wg.Wait()
+		configMutex.Lock()
 		t := rx.AddThread()
 		if t < 0 {
+			configMutex.UnLock()
 			crylog.Error("Failed to add another thread")
 			return USE_CACHED
 		}
-		configMutex.Lock()
 		threads = t
 		configMutex.Unlock()
 		crylog.Info("Increased # of threads to:", t)
@@ -384,12 +385,13 @@ func handlePoke(wasMining bool, poke int, stopper *uint32, wg *sync.WaitGroup) i
 	if poke == DECREASE_THREADS_POKE {
 		atomic.StoreUint32(stopper, 1)
 		wg.Wait()
+		configMutex.Lock()
 		t := rx.RemoveThread()
 		if t < 0 {
+			configMutex.Unlock()
 			crylog.Error("Failed to decrease threads")
 			return USE_CACHED
 		}
-		configMutex.Lock()
 		threads = t
 		configMutex.Unlock()
 		crylog.Info("Decreased # of threads to:", t)

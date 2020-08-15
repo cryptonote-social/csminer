@@ -97,7 +97,6 @@ int main(int argc, char* argv[]) {
     pl_resp = pool_login(&pl_args);
     if (pl_resp.code < 0) {
       printf("Oh no, login 2 failed: %s\n", pl_resp.message);
-      free((void*)pl_resp.message);
     }
     if (pl_resp.code > 1) {
       printf("Pool server didn't like login 2 info: %s\n", pl_resp.message);
