@@ -308,6 +308,16 @@ func GetMiningState() *GetMiningStateResponse {
 	}
 }
 
+func updatePoolStats(isMining bool) {
+	s := stats.GetSnapshot(isMining)
+	configMutex.Lock()
+	uname := plArgs.Username
+	configMutex.Unlock()
+	if uname != s.PoolUsername || s.SecondsOld > 5 {
+		stats.RefreshPoolStats(uname)
+	}
+}
+
 func printStats(isMining bool) {
 	s := stats.GetSnapshot(isMining)
 	crylog.Info("=====================================")
@@ -359,6 +369,7 @@ func goMine(wg *sync.WaitGroup, stopper *uint32, job client.MultiClientJob, thre
 			break
 		}
 		stats.TallyHashes(res)
+		updatePoolStats(true)
 		crylog.Info("Share found by thread:", thread, "Target:", blockchain.HashDifficulty(hash))
 		fnonce := hex.EncodeToString(nonce)
 		// If the client is alive, submit the share in a separate thread so we can resume hashing
