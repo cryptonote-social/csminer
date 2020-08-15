@@ -63,8 +63,10 @@ type Client struct {
 	jobChannel      chan *MultiClientJob
 	firstJob        *MultiClientJob
 
-	mutex sync.Mutex
-	alive bool // true when the stratum client is connected and healthy
+	mutex      sync.Mutex
+	closeCount int  // incremented with each call to close to signal old dispatch loops to exit
+	alive      bool // true when the stratum client is connected. Set to false upon call to Close(), or when Connect() is called but
+	// a new connection is yet to be established.
 }
 
 func (cl *Client) IsAlive() bool {
@@ -77,17 +79,14 @@ func (cl *Client) IsAlive() bool {
 // not be established, or if the stratum server itself returned an error. In the latter case,
 // code and message will also be specified. If the stratum server returned just a warning, then
 // error will be nil, but code & message will be specified.
-//
-// After calling Connect, if it returns successfully, the client is guaranteed to be in the alive
-// state. Call StartDispatching() to begin job dispatching.
 func (cl *Client) Connect(
 	address string, useTLS bool, agent string,
-	uname, pw, rigid string) (err error, code int, message string) {
+	uname, pw, rigid string) (err error, code int, message string, jobChan <-chan *MultiClientJob) {
 	cl.mutex.Lock()
 	defer cl.mutex.Unlock()
 	if cl.alive {
-		crylog.Warn("client already connected. closing then proceeding to reconnect")
-		cl.close()
+		crylog.Error("client already connected!")
+		return errors.New("client already connected"), 0, "", nil
 	}
 	cl.address = address
 	if !useTLS {
@@ -97,7 +96,7 @@ func (cl *Client) Connect(
 	}
 	if err != nil {
 		crylog.Error("Dial failed:", err, cl)
-		return err, 0, ""
+		return err, 0, "", nil
 	}
 	cl.responseChannel = make(chan *SubmitWorkResponse)
 	cl.jobChannel = make(chan *MultiClientJob)
@@ -125,13 +124,13 @@ func (cl *Client) Connect(
 	data, err := json.Marshal(loginRequest)
 	if err != nil {
 		crylog.Error("json marshalling failed:", err, "for client:", cl)
-		return err, 0, ""
+		return err, 0, "", nil
 	}
 	cl.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	data = append(data, '\n')
 	if _, err = cl.conn.Write(data); err != nil {
 		crylog.Error("writing request failed:", err, "for client:", cl)
-		return err, 0, ""
+		return err, 0, "", nil
 	}
 
 	// Now read the login response
@@ -159,29 +158,19 @@ func (cl *Client) Connect(
 	err = readJSON(response, rdr)
 	if err != nil {
 		crylog.Error("readJSON failed for client:", cl, err)
-		return err, 0, ""
+		return err, 0, "", nil
 	}
 	if response.Result == nil {
 		crylog.Error("Didn't get job result from login response:", response.Error)
-		return errors.New("stratum server error"), response.Error.Code, response.Error.Message
+		return errors.New("stratum server error"), response.Error.Code, response.Error.Message, nil
 	}
 	cl.alive = true
 	cl.firstJob = response.Result.Job
+	go cl.dispatchJobs(cl.closeCount)
 	if response.Warning != nil {
-		return nil, response.Warning.Code, response.Warning.Message
+		return nil, response.Warning.Code, response.Warning.Message, cl.jobChannel
 	}
-	return nil, 0, ""
-}
-
-func (cl *Client) StartDispatching() (jobChan <-chan *MultiClientJob) {
-	cl.mutex.Lock()
-	defer cl.mutex.Unlock()
-	if !cl.alive {
-		crylog.Fatal("must call connect successfully first")
-		return nil
-	}
-	go cl.dispatchJobs()
-	return cl.jobChannel
+	return nil, 0, "", cl.jobChannel
 }
 
 // if error is returned then client will be closed and put in not-alive state
@@ -281,6 +270,7 @@ func (cl *Client) close() {
 		crylog.Warn("tried to close dead client")
 		return
 	}
+	cl.closeCount++
 	cl.alive = false
 	cl.conn.Close()
 	close(cl.jobChannel)
@@ -298,8 +288,13 @@ type SubmitWorkResponse struct {
 
 // DispatchJobs will forward incoming jobs to the JobChannel until error is received or the
 // connection is closed. Client will be in not-alive state on return.
-func (cl *Client) dispatchJobs() {
+func (cl *Client) dispatchJobs(closeID int) {
 	cl.mutex.Lock()
+	if closeID != cl.closeCount {
+		crylog.Info("exiting obsolete dispatch loop:", closeID, cl.closeCount)
+		cl.mutex.Unlock()
+		return
+	}
 	cl.jobChannel <- cl.firstJob
 	cl.firstJob = nil
 	conn := cl.conn
@@ -309,35 +304,32 @@ func (cl *Client) dispatchJobs() {
 		response := &SubmitWorkResponse{}
 		conn.SetReadDeadline(time.Now().Add(3600 * time.Second))
 		err := readJSON(response, reader)
+		cl.mutex.Lock()
+		if closeID != cl.closeCount {
+			crylog.Info("exiting obsolete dispatch loop:", closeID, cl.closeCount)
+			cl.mutex.Unlock()
+			return
+		}
 		if err != nil {
-			crylog.Error("readJSON failed, closing client and exiting dispatch:", err)
-			cl.Close()
+			crylog.Error("readJSON failed, closing client and exiting dispatch", closeID, ":", err)
+			cl.close()
+			cl.mutex.Unlock()
 			return
 		}
 		if response.Method != "job" {
 			if response.ID == SUBMIT_WORK_JSON_ID {
-				cl.mutex.Lock()
-				if !cl.alive {
-					cl.mutex.Unlock()
-					crylog.Info("exiting dead client dispatch loop")
-					return
-				}
 				cl.responseChannel <- response
 				cl.mutex.Unlock()
 				continue
 			}
 			crylog.Warn("Unexpected response:", *response)
+			cl.mutex.Unlock()
 			continue
 		}
 		if response.Job == nil {
 			crylog.Error("Didn't get job as expected:", *response)
-			cl.Close()
-			return
-		}
-		cl.mutex.Lock()
-		if !cl.alive {
+			cl.close()
 			cl.mutex.Unlock()
-			crylog.Info("exiting dead client dispatch loop")
 			return
 		}
 		cl.jobChannel <- response.Job

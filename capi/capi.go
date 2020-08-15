@@ -76,7 +76,7 @@ func RemoveMiningActivityOverride() {
 
 //export ReportLockScreenState
 func ReportLockScreenState(locked bool) {
-	minerlib.ReportLockScreenState(locked)
+	minerlib.ReportIdleScreenState(locked)
 }
 
 //export ReportPowerState

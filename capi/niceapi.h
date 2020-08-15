@@ -100,8 +100,8 @@ typedef struct get_miner_state_response {
   // Valid values for mining_activity fall into two cateogories: MINING_PAUSED (all < 0)
   // and MINING_ACTIVE (all > 0)
   //
-  //	MINING_PAUSED_NO_CONNECTION = -2
-  //     indicates connection to pool server is lost; miner will continue trying to reconnect.
+  //	MINING_PAUSED_NO_CONNECTION = -2 indicates connection to pool server is lost or user has
+  //     not logged in; miner will continue trying to reconnect if a previous login succeeded
   //
   //	MINING_PAUSED_SCREEN_ACTIVITY = -3
   //     indicates miner is paused because the screen is active and miner is configured to mine

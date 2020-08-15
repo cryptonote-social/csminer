@@ -17,30 +17,36 @@ import (
 )
 
 const (
-	//	MINING_PAUSED_NO_CONNECTION = -2
-	//     indicates connection to pool server is lost; miner will continue trying to reconnect.
-	//
-	//	MINING_PAUSED_SCREEN_ACTIVITY = -3
-	//     indicates miner is paused because the screen is active and miner is configured to mine
-	//     only when idle.
-	//
-	//	MINING_PAUSED_BATTERY_POWER = -4
-	//     indicates miner is paused because the machine is operating on battery power.
-	//
-	//	MINING_PAUSED_USER_OVERRIDE = -5
-	//     indicates miner is paused, and is in the "user focred mining pause" state.
-	//
+	// Indicates there is no connection to the pool server, either because there has yet to
+	// be a successful login, or there are connectivity issues. For the latter case, the
+	// miner will continue trying to connect.
+	MINING_PAUSED_NO_CONNECTION = -2
+
+	// Indicates miner is paused because the screen is active
+	MINING_PAUSED_SCREEN_ACTIVITY = -3
+
+	// Indicates miner is paused because the machine is operating on battery power.
+	MINING_PAUSED_BATTERY_POWER = -4
+
+	// Indicates miner is paused, and is in the "user focred mining pause" state.
+	MINING_PAUSED_USER_OVERRIDE = -5
+
+	// Indicates miner is actively mining
 	MINING_ACTIVE = 1
-	//     indicates miner is actively mining
-	//
-	//	MINING_ACTIVE_USER_OVERRIDE = 2
+
+	// Indicates miner is actively mining due to user-initiated override
+	MINING_ACTIVE_USER_OVERRIDE = 2
 
 	// for PokeChannel stuff:
 	HANDLED    = 1
 	USE_CACHED = 2
 
+	STATE_CHANGE_POKE     = 1
 	INCREASE_THREADS_POKE = 6
 	DECREASE_THREADS_POKE = 7
+
+	OVERRIDE_MINE  = 1
+	OVERRIDE_PAUSE = 2
 )
 
 var (
@@ -48,7 +54,12 @@ var (
 	configMutex sync.Mutex
 	plArgs      *PoolLoginArgs
 	threads     int
-	loggedIn    bool
+	plCount     int // incremented by PoolLogin
+	lastSeed    []byte
+
+	batteryPower   bool
+	screenIdle     bool
+	miningOverride int // 0 == no override, OVERRIDE_MINE == always mine, OVERRIDE_PAUSE == don't mine
 
 	// stratum client
 	cl client.Client
@@ -91,9 +102,45 @@ type PoolLoginResponse struct {
 	Message string
 }
 
+// See MINING_ACTIVITY const values above for all possibilities. Shorter story: negative value ==
+// paused, posiive value == active.
+func getMiningActivityState() int {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
+	// User-override pause trumps all:
+	if miningOverride == OVERRIDE_PAUSE {
+		return MINING_PAUSED_USER_OVERRIDE
+	}
+	// If there is no pool connection, we cannot mine.
+	if !cl.IsAlive() {
+		return MINING_PAUSED_NO_CONNECTION
+	}
+
+	if miningOverride == OVERRIDE_MINE {
+		return MINING_ACTIVE_USER_OVERRIDE
+	}
+
+	if batteryPower {
+		return MINING_PAUSED_BATTERY_POWER
+	}
+	if !screenIdle {
+		return MINING_PAUSED_SCREEN_ACTIVITY
+	}
+
+	return MINING_ACTIVE
+}
+
+// Called by the user to log into the pool for the first time, or re-log into the pool with new
+// credentials.
 func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	configMutex.Lock()
 	defer configMutex.Unlock()
+	plCount++ // signals previous mining loop, if any, to exit
+	crylog.Info("PoolLogin:", plCount)
+	if cl.IsAlive() {
+		cl.Close()
+	}
 	loginName := args.Username
 	if args.Wallet != "" {
 		loginName = args.Wallet + "." + args.Username
@@ -101,10 +148,9 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	agent := args.Agent
 	config := args.Config
 	rigid := args.RigID
-	loggedIn = false
 
 	r := &PoolLoginResponse{}
-	err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
+	err, code, message, jc := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
 	if err != nil {
 		if code != 0 {
 			crylog.Error("Pool server did not allow login due to error:")
@@ -133,10 +179,10 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	}
 
 	// login successful
-	loggedIn = true
 	plArgs = args
 	r.Code = 1
 	go stats.RefreshPoolStats(plArgs.Username)
+	go MiningLoop(jc, plCount)
 	return r
 }
 
@@ -190,39 +236,22 @@ func InitMiner(args *InitMinerArgs) *InitMinerResponse {
 	}
 	stats.Init()
 	threads = args.Threads
-	go func() {
-		MiningLoop(awaitLogin())
-	}()
 	return r
 }
 
-func awaitLogin() <-chan *client.MultiClientJob {
-	crylog.Info("Awaiting login")
-	for {
-		configMutex.Lock()
-		li := loggedIn
-		var uname string
-		if plArgs != nil {
-			uname = plArgs.Username
-		}
-		configMutex.Unlock()
-		if li {
-			crylog.Info("Logged in:", uname)
-			return cl.StartDispatching()
-		}
-		time.Sleep(time.Second)
-	}
-}
-
-func reconnectClient() <-chan *client.MultiClientJob {
+// Returns nil if connection could not be established because of failed call to PoolLogin.
+func reconnectClient(loginNumber int) <-chan *client.MultiClientJob {
+	crylog.Info("Reconnecting loop:", loginNumber)
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
 		configMutex.Lock()
-		if !loggedIn {
-			// Client is being reconnected by the user, await until successful.
+		if loginNumber != plCount {
+			// PoolLogin was called since this loop was started, so this mining loop should
+			// terminate instead of reconnect.
 			configMutex.Unlock()
-			return awaitLogin()
+			return nil
 		}
+
 		loginName := plArgs.Username
 		if plArgs.Wallet != "" {
 			loginName = plArgs.Wallet + "." + plArgs.Username
@@ -231,11 +260,10 @@ func reconnectClient() <-chan *client.MultiClientJob {
 		config := plArgs.Config
 		rigid := plArgs.RigID
 
-		crylog.Info("Reconnecting...")
-		err, code, message := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
+		err, code, message, jc := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
 		configMutex.Unlock()
 		if err == nil {
-			return awaitLogin()
+			return jc
 		}
 		if code != 0 {
 			crylog.Fatal("Pool server did not allow login due to error:", message)
@@ -248,25 +276,29 @@ func reconnectClient() <-chan *client.MultiClientJob {
 	}
 }
 
-func MiningLoop(jobChan <-chan *client.MultiClientJob) {
-	crylog.Info("Mining loop started")
-	lastSeed := []byte{}
+func MiningLoop(jobChan <-chan *client.MultiClientJob, loginNumber int) {
+	crylog.Info("Mining loop", loginNumber, "started")
+	stats.ResetRecent()
 
 	// Synchronization vars
 	var wg sync.WaitGroup // used to wait for stopped worker threads to finish
 	var stopper uint32    // atomic int used to signal rxlib worker threads to stop mining
 
-	//wasJustMining := false
-
+	wasJustMining := false
 	var job *client.MultiClientJob
 	for {
 		select {
 		case job = <-jobChan:
 			if job == nil {
-				crylog.Warn("stratum client died")
-				jobChan = reconnectClient()
+				crylog.Info("stratum client closed")
 				atomic.StoreUint32(&stopper, 1)
 				wg.Wait()
+				// See if we need to exit this loop or reconnect
+				jobChan = reconnectClient(loginNumber)
+				if jobChan == nil {
+					crylog.Info("Mining loop", loginNumber, "terminating")
+					return
+				}
 				stats.ResetRecent()
 				continue
 			}
@@ -290,7 +322,24 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 		// Stop existing mining, if any, and wait for mining threads to finish.
 		atomic.StoreUint32(&stopper, 1)
 		wg.Wait()
-		printStats(true /*isMining*/)
+
+		as := getMiningActivityState()
+		if as < 0 {
+			if wasJustMining {
+				printStats(true)
+				crylog.Info("Mining is now paused:", as)
+				wasJustMining = false
+				stats.ResetRecent()
+			}
+			continue
+		}
+		if !wasJustMining {
+			crylog.Info("Mining is now active:", as)
+			wasJustMining = true
+			stats.ResetRecent()
+		} else {
+			printStats(true)
+		}
 
 		// Check if we need to reinitialize rx dataset
 		newSeed, err := hex.DecodeString(job.SeedHash)
@@ -347,6 +396,9 @@ func handlePoke(wasMining bool, poke int, stopper *uint32, wg *sync.WaitGroup) i
 		stats.ResetRecent()
 		return USE_CACHED
 	}
+	if poke == STATE_CHANGE_POKE {
+		return USE_CACHED
+	}
 	/*
 		isMiningNow := miningActive()
 		if wasMining != isMiningNow {
@@ -365,12 +417,17 @@ type GetMiningStateResponse struct {
 }
 
 func GetMiningState() *GetMiningStateResponse {
-	s := stats.GetSnapshot(true /*TODO: fix*/)
+	as := getMiningActivityState()
+	var isMining bool
+	if as > 0 {
+		isMining = true
+	}
+	s := stats.GetSnapshot(isMining)
 	configMutex.Lock()
 	defer configMutex.Unlock()
 	return &GetMiningStateResponse{
 		Snapshot:       *s,
-		MiningActivity: MINING_ACTIVE,
+		MiningActivity: as,
 		Threads:        threads,
 	}
 }
@@ -381,7 +438,7 @@ func updatePoolStats(isMining bool) {
 	uname := plArgs.Username
 	configMutex.Unlock()
 	if uname != "" && (uname != s.PoolUsername || s.SecondsOld > 5) {
-		stats.RefreshPoolStats(uname)
+		go stats.RefreshPoolStats(uname)
 	}
 }
 
@@ -426,7 +483,7 @@ func printStats(isMining bool) {
 
 		}
 		if uname != s.PoolUsername || s.SecondsOld > 120 {
-			stats.RefreshPoolStats(uname)
+			go stats.RefreshPoolStats(uname)
 		}
 	}
 	crylog.Info("=====================================")
@@ -481,19 +538,47 @@ func goMine(wg *sync.WaitGroup, stopper *uint32, job client.MultiClientJob, thre
 func OverrideMiningActivityState(mine bool) {
 	configMutex.Lock()
 	defer configMutex.Unlock()
+	var newState int
+	if mine {
+		newState = OVERRIDE_MINE
+	} else {
+		newState = OVERRIDE_PAUSE
+	}
+	if miningOverride == newState {
+		return
+	}
+	crylog.Info("New mining override state:", newState)
+	pokeJobDispatcher(STATE_CHANGE_POKE)
 }
 
 func RemoveMiningActivityOverride() {
 	configMutex.Lock()
 	defer configMutex.Unlock()
+	if miningOverride == 0 {
+		return
+	}
+	crylog.Info("Removing mining override")
+	miningOverride = 0
 }
 
-func ReportLockScreenState(locked bool) {
+func ReportIdleScreenState(isIdle bool) {
 	configMutex.Lock()
 	defer configMutex.Unlock()
+	if screenIdle == isIdle {
+		return
+	}
+	crylog.Info("Screen idle state changed to:", isIdle)
+	screenIdle = isIdle
+	pokeJobDispatcher(STATE_CHANGE_POKE)
 }
 
-func ReportPowerState(onBattery bool) {
+func ReportPowerState(battery bool) {
 	configMutex.Lock()
 	defer configMutex.Unlock()
+	if batteryPower == battery {
+		return
+	}
+	crylog.Info("Battery state changed to:", battery)
+	batteryPower = battery
+	pokeJobDispatcher(STATE_CHANGE_POKE)
 }

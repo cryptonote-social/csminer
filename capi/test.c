@@ -27,6 +27,8 @@ int main(int argc, char* argv[]) {
   } 
   printf("Miner initialized.\n");
 
+  report_lock_screen_state(true); // pretend screen is locked so we will mine
+
   pool_login_args pl_args;
   pl_args.agent = "Super Power Ultimate Miner (S.P.U.M.) v0.6.9";
   pl_args.rigid = NULL;
@@ -60,6 +62,19 @@ int main(int argc, char* argv[]) {
 	}
 	free((void*)pl_resp.message);
 
+    sleep(10);
+    printf("Setting screen state to active\n");
+    report_lock_screen_state(false/*is_locked*/);  // make sure miner pauses
+    sleep(10);
+    printf("Setting screen state to locked\n");
+    report_lock_screen_state(true);
+    sleep(10);
+    printf("Setting power state to on-battery\n");
+    report_power_state(true/*on_battery*/);  // make sure miner pauses
+    sleep(10);
+    printf("Setting power state to power adapter\n");
+    report_power_state(false);
+
     printf("Sleeping for 2 minutes before trying another login.\n");
     sleep(60);
 	get_miner_state_response ms_resp = get_miner_state();
@@ -68,6 +83,7 @@ int main(int argc, char* argv[]) {
 	free((void*)ms_resp.username);
 	free((void*)ms_resp.time_to_reward);
 
+    printf("Increasing threads\n");
     increase_threads();
     sleep(60);
 	ms_resp = get_miner_state();
@@ -102,6 +118,7 @@ int main(int argc, char* argv[]) {
 	free((void*)ms_resp.username);
 	free((void*)ms_resp.time_to_reward);
 
+    printf("Decreasing threads\n");
     decrease_threads();
     sleep(60);
 	ms_resp = get_miner_state();
