@@ -44,6 +44,7 @@ const (
 	STATE_CHANGE_POKE     = 1
 	INCREASE_THREADS_POKE = 6
 	DECREASE_THREADS_POKE = 7
+	EXIT_LOOP_POKE        = 8
 
 	OVERRIDE_MINE  = 1
 	OVERRIDE_PAUSE = 2
@@ -51,12 +52,13 @@ const (
 
 var (
 	// miner config
-	configMutex        sync.Mutex
-	plArgs             *PoolLoginArgs
-	threads            int
-	lastSeed           []byte
-	stopMiningLoop     uint32    // for stopping any existing mining loop
-	miningLoopDoneChan chan bool // for waiting on an existing mining loop to finish
+	configMutex sync.Mutex
+	plArgs      *PoolLoginArgs
+	threads     int
+	lastSeed    []byte
+
+	doneChanMutex      sync.Mutex
+	miningLoopDoneChan chan bool // non-nil when a mining loop is active
 
 	batteryPower   bool
 	screenIdle     bool
@@ -139,19 +141,18 @@ func getMiningActivityState() int {
 // Called by the user to log into the pool for the first time, or re-log into the pool with new
 // credentials.
 func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
-	configMutex.Lock()
-	defer configMutex.Unlock()
-	// close out any previous client connection
-	if cl.IsAlive() {
-		cl.Close()
-	}
-	// wait for any previous mining loop to terminate
+	doneChanMutex.Lock()
+	defer doneChanMutex.Unlock()
 	if miningLoopDoneChan != nil {
-		atomic.StoreUint32(&stopMiningLoop, 1)
+		// trigger close of previous mining loop
+		pokeJobDispatcher(EXIT_LOOP_POKE)
+		// wait until previous mining loop completes
 		<-miningLoopDoneChan
 		miningLoopDoneChan = nil
-		atomic.StoreUint32(&stopMiningLoop, 0)
 	}
+
+	configMutex.Lock()
+	defer configMutex.Unlock()
 	loginName := args.Username
 	if args.Wallet != "" {
 		loginName = args.Wallet + "." + args.Username
@@ -255,11 +256,6 @@ func InitMiner(args *InitMinerArgs) *InitMinerResponse {
 func reconnectClient() <-chan *client.MultiClientJob {
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
-		if atomic.LoadUint32(&stopMiningLoop) == 1 {
-			// PoolLogin was called since this loop was started, so this mining loop should
-			// terminate instead of reconnect.
-			return nil
-		}
 		configMutex.Lock()
 		loginName := plArgs.Username
 		if plArgs.Wallet != "" {
@@ -301,19 +297,19 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 		select {
 		case job = <-jobChan:
 			if job == nil {
-				crylog.Info("stratum client closed")
-				// See if we need to exit this loop or reconnect
+				crylog.Info("stratum client closed, reconnecting...")
 				jobChan = reconnectClient()
-				if jobChan == nil {
-					crylog.Info("Mining loop terminating")
-					return
-				}
 				// Set up fresh stats for new connection
 				stopWorkers()
 				stats.ResetRecent()
 				continue
 			}
 		case poke := <-pokeChannel:
+			if poke == EXIT_LOOP_POKE {
+				crylog.Info("Stopping mining loop")
+				stopWorkers()
+				return
+			}
 			pokeRes := handlePoke(true /*wasJustMining*/, poke)
 			switch pokeRes {
 			case HANDLED:

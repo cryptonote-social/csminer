@@ -63,8 +63,9 @@ type Client struct {
 	jobChannel      chan *MultiClientJob
 	firstJob        *MultiClientJob
 
-	mutex                sync.Mutex
-	stopDispatch         bool      // for stopping any existing dispatch loop
+	mutex sync.Mutex
+
+	doneChanMutex        sync.Mutex
 	dispatchLoopDoneChan chan bool // for waiting on an existing dispatch loop to finish
 
 	alive bool // true when the stratum client is connected. Set to false upon call to Close(), or when Connect() is called but
@@ -84,17 +85,19 @@ func (cl *Client) IsAlive() bool {
 func (cl *Client) Connect(
 	address string, useTLS bool, agent string,
 	uname, pw, rigid string) (err error, code int, message string, jobChan <-chan *MultiClientJob) {
-	cl.mutex.Lock()
-	defer cl.mutex.Unlock()
-	if cl.alive {
-		crylog.Error("client already connected!")
-		return errors.New("client already connected"), 0, "", nil
-	}
+	cl.doneChanMutex.Lock()
+	defer cl.doneChanMutex.Unlock()
 	if cl.dispatchLoopDoneChan != nil {
+		cl.Close() // just in case caller forgot to call Close before trying a new connection
+		// wait until previous dispatch loop completes
 		<-cl.dispatchLoopDoneChan
 		cl.dispatchLoopDoneChan = nil
 	}
 
+	cl.mutex.Lock()
+	defer cl.mutex.Unlock()
+
+	cl.alive = false
 	cl.address = address
 	if !useTLS {
 		cl.conn, err = net.DialTimeout("tcp", address, time.Second*30)
