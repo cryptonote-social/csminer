@@ -43,6 +43,8 @@ func Init() {
 	lastUpdateTime = now
 }
 
+// Call whenever we're at at a point where recent hashrate calculation would be accurate,
+// e.g. after all worker threads have been tallied.
 func RecentStatsNowAccurate() {
 	lastUpdateTime = time.Now()
 }
@@ -93,7 +95,7 @@ type Snapshot struct {
 	SecondsOld              int // how many seconds out of date the pool stats are
 }
 
-func GetSnapshot(isMining bool) (s *Snapshot, elapsedRecent float64) {
+func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64) {
 	mutex.Lock()
 	defer mutex.Unlock()
 	r := &Snapshot{}
@@ -111,7 +113,7 @@ func GetSnapshot(isMining bool) (s *Snapshot, elapsedRecent float64) {
 		elapsedOverall = time.Now().Sub(startTime).Seconds()
 	}
 	// Recent stats are only accurate up to the last update time
-	elapsedRecent = lastUpdateTime.Sub(lastResetTime).Seconds()
+	elapsedRecent := lastUpdateTime.Sub(lastResetTime).Seconds()
 
 	if !isMining {
 		r.RecentHashrate = 0.0
@@ -119,7 +121,9 @@ func GetSnapshot(isMining bool) (s *Snapshot, elapsedRecent float64) {
 			r.Hashrate = float64(clientSideHashes) / elapsedOverall
 		}
 	} else {
-		if elapsedRecent > 1.0 {
+		if elapsedRecent > 5.0 {
+			// For accurate results, we require at least 5 seconds of mining during the recent
+			// period in order to return a recent hashrate.
 			r.RecentHashrate = float64(recentHashes) / elapsedRecent
 		} else {
 			r.RecentHashrate = -1.0 // indicates not enough data
@@ -140,7 +144,7 @@ func GetSnapshot(isMining bool) (s *Snapshot, elapsedRecent float64) {
 		r.TimeToReward = timeToReward
 	}
 	r.SecondsOld = int(time.Now().Sub(lastPoolUpdateTime).Seconds())
-	return r, elapsedRecent
+	return r, time.Now().Sub(lastResetTime).Seconds()
 }
 
 func RefreshPoolStats(username string) error {
