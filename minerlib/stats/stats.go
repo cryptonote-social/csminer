@@ -1,7 +1,7 @@
 package stats
 
 import (
-	"github.com/cryptonote-social/csminer/crylog"
+	//"github.com/cryptonote-social/csminer/crylog"
 
 	"encoding/json"
 	"io/ioutil"
@@ -113,7 +113,6 @@ func GetSnapshot(isMining bool) (s *Snapshot, elapsedRecent float64) {
 	// Recent stats are only accurate up to the last update time
 	elapsedRecent = lastUpdateTime.Sub(lastResetTime).Seconds()
 
-	crylog.Info("::", isMining, recentHashes, elapsedRecent)
 	if !isMining {
 		r.RecentHashrate = 0.0
 		if elapsedOverall > 0.0 {
