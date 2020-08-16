@@ -63,9 +63,11 @@ type Client struct {
 	jobChannel      chan *MultiClientJob
 	firstJob        *MultiClientJob
 
-	mutex      sync.Mutex
-	closeCount int  // incremented with each call to close to signal old dispatch loops to exit
-	alive      bool // true when the stratum client is connected. Set to false upon call to Close(), or when Connect() is called but
+	mutex                sync.Mutex
+	stopDispatch         bool      // for stopping any existing dispatch loop
+	dispatchLoopDoneChan chan bool // for waiting on an existing dispatch loop to finish
+
+	alive bool // true when the stratum client is connected. Set to false upon call to Close(), or when Connect() is called but
 	// a new connection is yet to be established.
 }
 
@@ -88,6 +90,11 @@ func (cl *Client) Connect(
 		crylog.Error("client already connected!")
 		return errors.New("client already connected"), 0, "", nil
 	}
+	if cl.dispatchLoopDoneChan != nil {
+		<-cl.dispatchLoopDoneChan
+		cl.dispatchLoopDoneChan = nil
+	}
+
 	cl.address = address
 	if !useTLS {
 		cl.conn, err = net.DialTimeout("tcp", address, time.Second*30)
@@ -166,7 +173,8 @@ func (cl *Client) Connect(
 	}
 	cl.alive = true
 	cl.firstJob = response.Result.Job
-	go cl.dispatchJobs(cl.closeCount)
+	cl.dispatchLoopDoneChan = make(chan bool, 1)
+	go cl.dispatchJobs()
 	if response.Warning != nil {
 		return nil, response.Warning.Code, response.Warning.Message, cl.jobChannel
 	}
@@ -270,7 +278,6 @@ func (cl *Client) close() {
 		crylog.Warn("tried to close dead client")
 		return
 	}
-	cl.closeCount++
 	cl.alive = false
 	cl.conn.Close()
 	close(cl.jobChannel)
@@ -288,10 +295,11 @@ type SubmitWorkResponse struct {
 
 // DispatchJobs will forward incoming jobs to the JobChannel until error is received or the
 // connection is closed. Client will be in not-alive state on return.
-func (cl *Client) dispatchJobs(closeID int) {
+func (cl *Client) dispatchJobs() {
+	defer func() { cl.dispatchLoopDoneChan <- true }()
 	cl.mutex.Lock()
-	if closeID != cl.closeCount {
-		crylog.Info("exiting obsolete dispatch loop:", closeID, cl.closeCount)
+	if !cl.alive {
+		crylog.Info("exiting dispatch loop")
 		cl.mutex.Unlock()
 		return
 	}
@@ -305,13 +313,12 @@ func (cl *Client) dispatchJobs(closeID int) {
 		conn.SetReadDeadline(time.Now().Add(3600 * time.Second))
 		err := readJSON(response, reader)
 		cl.mutex.Lock()
-		if closeID != cl.closeCount {
-			crylog.Info("exiting obsolete dispatch loop:", closeID, cl.closeCount)
+		if !cl.alive {
 			cl.mutex.Unlock()
 			return
 		}
 		if err != nil {
-			crylog.Error("readJSON failed, closing client and exiting dispatch", closeID, ":", err)
+			crylog.Error("readJSON failed, closing client and exiting dispatch:", err)
 			cl.close()
 			cl.mutex.Unlock()
 			return

@@ -51,11 +51,12 @@ const (
 
 var (
 	// miner config
-	configMutex sync.Mutex
-	plArgs      *PoolLoginArgs
-	threads     int
-	plCount     int // incremented by PoolLogin
-	lastSeed    []byte
+	configMutex        sync.Mutex
+	plArgs             *PoolLoginArgs
+	threads            int
+	lastSeed           []byte
+	stopMiningLoop     uint32    // for stopping any existing mining loop
+	miningLoopDoneChan chan bool // for waiting on an existing mining loop to finish
 
 	batteryPower   bool
 	screenIdle     bool
@@ -140,10 +141,16 @@ func getMiningActivityState() int {
 func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	configMutex.Lock()
 	defer configMutex.Unlock()
-	plCount++ // signals previous mining loop, if any, to exit
-	crylog.Info("PoolLogin:", plCount)
+	// close out any previous client connection
 	if cl.IsAlive() {
 		cl.Close()
+	}
+	// wait for any previous mining loop to terminate
+	if miningLoopDoneChan != nil {
+		atomic.StoreUint32(&stopMiningLoop, 1)
+		<-miningLoopDoneChan
+		miningLoopDoneChan = nil
+		atomic.StoreUint32(&stopMiningLoop, 0)
 	}
 	loginName := args.Username
 	if args.Wallet != "" {
@@ -186,7 +193,8 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	plArgs = args
 	r.Code = 1
 	go stats.RefreshPoolStats(plArgs.Username)
-	go MiningLoop(jc, plCount)
+	miningLoopDoneChan = make(chan bool, 1)
+	go MiningLoop(jc)
 	return r
 }
 
@@ -244,18 +252,15 @@ func InitMiner(args *InitMinerArgs) *InitMinerResponse {
 }
 
 // Returns nil if connection could not be established because of failed call to PoolLogin.
-func reconnectClient(loginNumber int) <-chan *client.MultiClientJob {
-	crylog.Info("Reconnecting loop:", loginNumber)
+func reconnectClient() <-chan *client.MultiClientJob {
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
-		configMutex.Lock()
-		if loginNumber != plCount {
+		if atomic.LoadUint32(&stopMiningLoop) == 1 {
 			// PoolLogin was called since this loop was started, so this mining loop should
 			// terminate instead of reconnect.
-			configMutex.Unlock()
 			return nil
 		}
-
+		configMutex.Lock()
 		loginName := plArgs.Username
 		if plArgs.Wallet != "" {
 			loginName = plArgs.Wallet + "." + plArgs.Username
@@ -264,6 +269,7 @@ func reconnectClient(loginNumber int) <-chan *client.MultiClientJob {
 		config := plArgs.Config
 		rigid := plArgs.RigID
 
+		crylog.Info("Attempting to reconnect...")
 		err, code, message, jc := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
 		configMutex.Unlock()
 		if err == nil {
@@ -281,11 +287,14 @@ func reconnectClient(loginNumber int) <-chan *client.MultiClientJob {
 }
 
 // Called by PoolLogin after succesful login.
-func MiningLoop(jobChan <-chan *client.MultiClientJob, loginNumber int) {
-	crylog.Info("Mining loop", loginNumber, "started")
-	stopWorkers() // a previous mining loop may still have active threads, so we must stop them
-	// before this loop starts up.
+func MiningLoop(jobChan <-chan *client.MultiClientJob) {
+	defer func() { miningLoopDoneChan <- true }()
+	crylog.Info("Mining loop started")
+
+	// Set up fresh stats ....
+	stopWorkers()
 	stats.ResetRecent()
+
 	wasJustMining := false
 	var job *client.MultiClientJob
 	for {
@@ -293,13 +302,14 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, loginNumber int) {
 		case job = <-jobChan:
 			if job == nil {
 				crylog.Info("stratum client closed")
-				stopWorkers()
 				// See if we need to exit this loop or reconnect
-				jobChan = reconnectClient(loginNumber)
+				jobChan = reconnectClient()
 				if jobChan == nil {
-					crylog.Info("Mining loop", loginNumber, "terminating")
+					crylog.Info("Mining loop terminating")
 					return
 				}
+				// Set up fresh stats for new connection
+				stopWorkers()
 				stats.ResetRecent()
 				continue
 			}
@@ -404,14 +414,6 @@ func handlePoke(wasMining bool, poke int) int {
 	if poke == STATE_CHANGE_POKE {
 		return USE_CACHED
 	}
-	/*
-		isMiningNow := miningActive()
-		if wasMining != isMiningNow {
-			// mining state was toggled so fall through using last received job which will
-			// appropriately halt or restart any mining threads and/or print stats.
-			return USE_CACHED
-		}
-	*/
 	return HANDLED
 }
 
