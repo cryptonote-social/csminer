@@ -68,11 +68,6 @@ func MultiMain(s ScreenStater, agent string) {
 	}
 	flag.Parse()
 
-	if strings.Index(*uname, ".") != -1 {
-		crylog.Fatal("Usernames cannot contain the '.' character. If you are trying to specify a wallet id, use -wallet instead")
-		return
-	}
-
 	var hr1, hr2 int
 	hr1 = -1
 	var err error
@@ -97,7 +92,6 @@ func MultiMain(s ScreenStater, agent string) {
 			return
 		}
 	}
-
 	fmt.Printf("==== %s v%s ====\n", APPLICATION_NAME, VERSION_STRING)
 	if *uname == DONATE_USERNAME {
 		fmt.Printf("\nNo username specified, mining on behalf of donate.getmonero.org.\n")
@@ -119,6 +113,11 @@ func MultiMain(s ScreenStater, agent string) {
 	crylog.Info("Miner username:", *uname)
 	crylog.Info("Threads:", *t)
 
+	if hr1 == -1 || hr2 == -1 {
+		hr1 = 0
+		hr2 = 0
+	}
+
 	config := MinerConfig{
 		ScreenStater:   s,
 		Threads:        *t,
@@ -133,7 +132,7 @@ func MultiMain(s ScreenStater, agent string) {
 		UseTLS:         *tls,
 		AdvancedConfig: *config,
 	}
-	if Mine(&config) != nil {
+	if err = Mine(&config); err != nil {
 		crylog.Fatal("Miner failed:", err)
 	}
 }

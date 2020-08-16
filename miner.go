@@ -4,70 +4,24 @@ package csminer
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/hex"
-	"encoding/json"
-	"io/ioutil"
-	"net/http"
+	"errors"
 	"os"
-	"runtime"
 	"strconv"
-	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/cryptonote-social/csminer/blockchain"
 	"github.com/cryptonote-social/csminer/crylog"
-	"github.com/cryptonote-social/csminer/rx"
+	"github.com/cryptonote-social/csminer/minerlib"
 	"github.com/cryptonote-social/csminer/stratum/client"
 )
 
-var (
-	cl          *client.Client
-	clMutex     sync.Mutex
-	clientAlive bool // true when the stratum client is connected and healthy
-
-	stopper uint32         // atomic int used to signal rxlib worker threads to stop mining
-	wg      sync.WaitGroup // used to wait for stopped worker threads to finish
-
-	pokeChannel chan int // used to send messages to main job loop to take various actions
-
-	// miner client stats
-	sharesAccepted                 int64
-	sharesRejected                 int64
-	poolSideHashes                 int64
-	clientSideHashes, recentHashes int64
-
-	startTime           time.Time // when the miner started up
-	lastStatsResetTime  time.Time
-	lastStatsUpdateTime time.Time
-
-	screenIdle        int32 // only mine when this is > 0
-	batteryPower      int32 // only mine when this is > 0
-	manualMinerToggle int32 // whether paused mining has been manually overridden
-
-	mc *MinerConfig
-)
+var ()
 
 const (
-	HANDLED    = 1
-	USE_CACHED = 2
-
 	// Valid screen states
 	SCREEN_IDLE   = 0
 	SCREEN_ACTIVE = 1
 	BATTERY_POWER = 2
 	AC_POWER      = 3
-
-	SCREEN_IDLE_POKE      = 0
-	SCREEN_ON_POKE        = 1
-	BATTERY_POWER_POKE    = 2
-	AC_POWER_POKE         = 3
-	PRINT_STATS_POKE      = 4
-	ENTER_HIT_POKE        = 5
-	INCREASE_THREADS_POKE = 6
-	DECREASE_THREADS_POKE = 7
 )
 
 type ScreenState int
@@ -92,448 +46,145 @@ type MinerConfig struct {
 }
 
 func Mine(c *MinerConfig) error {
-	mc = c
-	if mc.UseTLS {
-		cl = client.NewClient("cryptonote.social:5556", mc.Agent)
-	} else {
-		cl = client.NewClient("cryptonote.social:5555", mc.Agent)
+	imResp := minerlib.InitMiner(&minerlib.InitMinerArgs{
+		Threads:          1,
+		ExcludeHourStart: c.ExcludeHrStart,
+		ExcludeHourEnd:   c.ExcludeHrEnd,
+	})
+	if imResp.Code > 2 {
+		crylog.Error("Bad configuration:", imResp.Message)
+		return errors.New("InitMiner failed: " + imResp.Message)
 	}
-	startTime = time.Now()
-	lastStatsResetTime = time.Now()
-	seed := []byte{}
+	if imResp.Code == 2 {
+		crylog.Warn("")
+		crylog.Warn("WARNING: Could not allocate hugepages. Mining might be slow. A reboot might help.")
+		crylog.Warn("")
+	}
 
-	screenIdle = 1
-	batteryPower = 0
+	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
+	for {
+		plResp := minerlib.PoolLogin(&minerlib.PoolLoginArgs{
+			Username: c.Username,
+			RigID:    c.RigID,
+			Wallet:   c.Wallet,
+			Agent:    c.Agent,
+			Config:   c.AdvancedConfig,
+			UseTLS:   c.UseTLS,
+		})
+		if plResp.Code < 0 {
+			crylog.Error("Pool server not responding:", plResp.Message)
+			crylog.Info("Sleeping for", sleepSec, "seconds before trying again.")
+			time.Sleep(sleepSec)
+			sleepSec += time.Second
+			continue
+		}
+		if plResp.Code == 1 {
+			if len(plResp.Message) > 0 {
+				crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
+				if plResp.MessageID == client.NO_WALLET_SPECIFIED_WARNING_CODE {
+					crylog.Warn("WARNING: your username is not yet associated with any")
+					crylog.Warn("   wallet id. You should fix this immediately.")
+				} else {
+					crylog.Warn("WARNING from pool server")
+					crylog.Warn("   Message:", plResp.Message)
+				}
+				crylog.Warn("   Code   :", plResp.MessageID, "\n")
+				crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::")
+			}
+			break
+		}
+		crylog.Error("Pool refused login:", plResp.Message)
+		return errors.New("pool refused login")
+	}
 
-	manualMinerToggle = 0
-	if mc.Saver {
-		ch, err := mc.ScreenStater.GetScreenStateChannel()
+	if c.Saver {
+		ch, err := c.ScreenStater.GetScreenStateChannel()
 		if err != nil {
 			crylog.Error("failed to get screen state monitor, screen state will be ignored")
 		} else {
 			// We assume the screen is active when the miner is started. This may
 			// not hold if someone is running the miner from an auto-start script?
-			screenIdle = 0
 			go monitorScreenSaver(ch)
 		}
+	} else {
+		minerlib.ReportIdleScreenState(true)
 	}
 
 	printKeyboardCommands()
-	startKeyboardScanning()
 
-	wasJustMining := false
-	pokeChannel = make(chan int, 5) // use small amount of buffering for when internet may be bad
-
-outer:
-	for {
-		jobChannel := connectClient()
-		resetRecentStats()
-		var job *client.MultiClientJob
-		for {
-			onoff := getActivityMessage()
-			crylog.Info("[mining=" + onoff + "]")
-			select {
-			case poke := <-pokeChannel:
-				pokeRes := handlePoke(wasJustMining, poke)
-				switch pokeRes {
-				case HANDLED:
-					continue
-				case USE_CACHED:
-					if job == nil {
-						crylog.Warn("no job to work on")
-						continue
-					}
-				default:
-					crylog.Error("mystery poke:", pokeRes)
-					continue
-				}
-			case job = <-jobChannel:
-				if job == nil {
-					crylog.Warn("stratum client died, reconnecting")
-					continue outer
-				}
-			}
-			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
-
-			// Stop existing mining, if any, and wait for mining threads to finish.
-			atomic.StoreUint32(&stopper, 1)
-			wg.Wait()
-
-			// Check if we need to reinitialize rx dataset
-			newSeed, err := hex.DecodeString(job.SeedHash)
-			if err != nil {
-				crylog.Error("invalid seed hash:", job.SeedHash)
-				continue
-			}
-			if bytes.Compare(newSeed, seed) != 0 {
-				crylog.Info("New seed:", job.SeedHash)
-				rx.InitRX(newSeed, mc.Threads, runtime.GOMAXPROCS(0))
-				seed = newSeed
-				resetRecentStats()
-			}
-
-			// Start mining on new job if mining is active
-			if miningActive() {
-				if !wasJustMining {
-					// Reset recent stats whenever going from not mining to mining,
-					// and don't print stats because they could be inaccurate
-					resetRecentStats()
-					wasJustMining = true
-				} else {
-					printStats(true)
-				}
-				atomic.StoreUint32(&stopper, 0)
-				for i := 0; i < mc.Threads; i++ {
-					wg.Add(1)
-					go goMine(&wg, *job, i /*thread*/)
-				}
-			} else if wasJustMining {
-				// Print stats whenever we go from mining to not mining
-				printStats(false)
-				wasJustMining = false
-			}
+	scanner := bufio.NewScanner(os.Stdin)
+	var manualMinerActivate bool
+	for scanner.Scan() {
+		b := scanner.Text()
+		switch b {
+		case "i":
+			crylog.Info("Increasing thread count.")
+			minerlib.IncreaseThreads()
+		case "d":
+			crylog.Info("Decreasing thread count.")
+			minerlib.DecreaseThreads()
+		case "h", "s", "p":
+			printStats()
+		case "q", "quit", "exit":
+			crylog.Info("quitting due to keyboard command")
+			return nil
+		case "?", "help":
+			printKeyboardCommands()
 		}
-	}
-}
-
-// connectClient will try to establish the connection to the stratum server and won't return until
-// successful. It will also start the job dispatching loop once connected. clientAlive will be true
-// upon return.
-func connectClient() chan *client.MultiClientJob {
-	clMutex.Lock()
-	clientAlive = false
-	clMutex.Unlock()
-	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
-	if mc.StartDiff > 0 {
-		// TODO: -start_diff flag is deprecated in favor of -config, so remove this when
-		// appropriate.
-		if len(mc.AdvancedConfig) > 0 {
-			mc.AdvancedConfig += ";"
-		}
-		mc.AdvancedConfig += "start_diff=" + strconv.Itoa(mc.StartDiff)
-	}
-	for {
-		loginName := mc.Username
-		if mc.Wallet != "" {
-			loginName = mc.Wallet + "." + mc.Username
-		}
-		clMutex.Lock()
-		err, code, message := cl.Connect(loginName, mc.AdvancedConfig, mc.RigID, mc.UseTLS)
-		clMutex.Unlock()
-		if err != nil {
-			if code != 0 {
-				// stratum server error
-				crylog.Error("Pool server did not allow a connection due to error:")
-				crylog.Error("  ::::::", message, "::::::")
-				os.Exit(1)
-			}
-			crylog.Warn("Client failed to connect:", err)
-			time.Sleep(sleepSec)
-			sleepSec += time.Second
-			continue
-		} else if code != 0 {
-			// We got a warning from the stratum server
-			crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
-			if code == client.NO_WALLET_SPECIFIED_WARNING_CODE {
-				crylog.Warn("WARNING: your username is not yet associated with any")
-				crylog.Warn("   wallet id. You should fix this immediately with the")
-				crylog.Warn("   -wallet flag.\n")
+		if len(b) == 0 {
+			if !manualMinerActivate {
+				manualMinerActivate = true
+				crylog.Info("Overriding mining state to ACTIVE")
+				minerlib.OverrideMiningActivityState(true)
 			} else {
-				crylog.Warn("WARNING from pool server")
-				crylog.Warn("   Message:", message)
-				crylog.Warn("   Code   :", code, "\n")
+				crylog.Info("Removing mining override")
+				manualMinerActivate = false
+				minerlib.RemoveMiningActivityOverride()
 			}
-			crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
 		}
-		break
 	}
-	clMutex.Lock()
-	clientAlive = true
-	clMutex.Unlock()
-
-	go func() {
-		err := cl.DispatchJobs()
-		if err != nil {
-			crylog.Error("Job dispatcher exitted with error:", err)
-		}
-		clMutex.Lock()
-		if clientAlive {
-			clientAlive = false
-			cl.Close()
-		}
-		clMutex.Unlock()
-	}()
-
-	crylog.Info("Connected")
-	return cl.JobChannel
+	crylog.Error("Scanning terminated")
+	return errors.New("didn't expect keyboard scanning to terminate")
 }
 
-func timeExcluded() bool {
-	currHr := time.Now().Hour()
-	startHr := mc.ExcludeHrStart
-	endHr := mc.ExcludeHrEnd
-	if startHr < endHr {
-		return currHr >= startHr && currHr < endHr
-	}
-	return currHr < startHr && currHr >= endHr
-}
-
-func resetRecentStats() {
-	atomic.StoreInt64(&recentHashes, 0)
-	lastStatsResetTime = time.Now()
-}
-
-func printStats(isMining bool) {
-	crylog.Info("=====================================")
-	crylog.Info("Shares    [accepted:rejected]:", sharesAccepted, ":", sharesRejected)
-	crylog.Info("Hashes          [client:pool]:", clientSideHashes, ":", poolSideHashes)
-	var elapsed1 float64
-	if isMining {
-		// if we're actively mining then hash count is only accurate
-		// as of the last update time
-		elapsed1 = lastStatsUpdateTime.Sub(startTime).Seconds()
+func printStats() {
+	s := minerlib.GetMiningState()
+	msg := getActivityMessage(s.MiningActivity)
+	crylog.Info("")
+	crylog.Info("===============================================================================")
+	crylog.Info("Mining", msg)
+	crylog.Info("===============================================================================")
+	if s.RecentHashrate < 0 {
+		crylog.Info("Recent Hashrate              : --calculating--")
 	} else {
-		elapsed1 = time.Now().Sub(startTime).Seconds()
+		crylog.Info("Recent Hashrate              :", strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
 	}
-	elapsed2 := lastStatsUpdateTime.Sub(lastStatsResetTime).Seconds()
-	if elapsed1 > 0.0 && elapsed2 > 0.0 {
-		crylog.Info("Hashes/sec [inception:recent]:",
-			strconv.FormatFloat(float64(clientSideHashes)/elapsed1, 'f', 2, 64), ":",
-			strconv.FormatFloat(float64(recentHashes)/elapsed2, 'f', 2, 64))
+	crylog.Info("Hashrate since inception     :", strconv.FormatFloat(s.Hashrate, 'f', 2, 64))
+	crylog.Info("Threads                      :", s.Threads)
+	crylog.Info("===============================================================================")
+	crylog.Info("Shares    [accepted:rejected]:", s.SharesAccepted, ":", s.SharesRejected)
+	crylog.Info("Hashes          [client:pool]:", s.ClientSideHashes, ":", s.PoolSideHashes)
+	crylog.Info("===============================================================================")
+	if s.SecondsOld >= 0.0 {
+		crylog.Info("Pool username                :", s.PoolUsername)
+		crylog.Info("Last pool stats refresh      :", s.SecondsOld, "seconds ago")
+		crylog.Info("  Lifetime hashes            :", prettyInt(s.LifetimeHashes))
+		crylog.Info("  Paid                       :", strconv.FormatFloat(s.Paid, 'f', 12, 64), "$XMR")
+		crylog.Info("  Owed                       :", strconv.FormatFloat(s.Owed, 'f', 12, 64), "$XMR")
+		crylog.Info("  Time to next reward (est.) :", s.TimeToReward)
+		crylog.Info("    Accumulated (est.)       :", strconv.FormatFloat(s.Accumulated, 'f', 12, 64), "$XMR")
+		crylog.Info("===============================================================================")
 	}
-	crylog.Info("=====================================")
-}
-
-func goMine(wg *sync.WaitGroup, job client.MultiClientJob, thread int) {
-	defer wg.Done()
-	input, err := hex.DecodeString(job.Blob)
-	diffTarget := blockchain.TargetToDifficulty(job.Target)
-	if err != nil {
-		crylog.Error("invalid blob:", job.Blob)
-		return
-	}
-
-	hash := make([]byte, 32)
-	nonce := make([]byte, 4)
-
-	for {
-		res := rx.HashUntil(input, uint64(diffTarget), thread, hash, nonce, &stopper)
-		lastStatsUpdateTime = time.Now()
-		if res <= 0 {
-			atomic.AddInt64(&clientSideHashes, -res)
-			atomic.AddInt64(&recentHashes, -res)
-			break
-		}
-		atomic.AddInt64(&clientSideHashes, res)
-		atomic.AddInt64(&recentHashes, res)
-		crylog.Info("Share found:", blockchain.HashDifficulty(hash), thread)
-		fnonce := hex.EncodeToString(nonce)
-
-		// If the client is alive, submit the share in a separate thread so we can resume hashing
-		// immediately, otherwise wait until it's alive.
-		for {
-			var alive bool
-			clMutex.Lock()
-			alive = clientAlive
-			clMutex.Unlock()
-			if alive {
-				break
-			}
-			//crylog.Warn("client ded")
-			time.Sleep(time.Second)
-		}
-
-		go func(fnonce, jobid string) {
-			clMutex.Lock()
-			defer clMutex.Unlock()
-			if !clientAlive {
-				crylog.Warn("client died, abandoning work")
-				return
-			}
-			resp, err := cl.SubmitWork(fnonce, jobid)
-			if err != nil {
-				crylog.Warn("Submit work client failure:", jobid, err)
-				clientAlive = false
-				cl.Close()
-				return
-			}
-			if len(resp.Error) > 0 {
-				atomic.AddInt64(&sharesRejected, 1)
-				crylog.Warn("Submit work server error:", jobid, resp.Error)
-				return
-			}
-			atomic.AddInt64(&sharesAccepted, 1)
-			atomic.AddInt64(&poolSideHashes, diffTarget)
-		}(fnonce, job.JobID)
-	}
+	crylog.Info("")
 }
 
 func printKeyboardCommands() {
 	crylog.Info("Keyboard commands:")
 	crylog.Info("   s: print miner stats")
-	crylog.Info("   p: print pool-side user stats")
+	//crylog.Info("   p: print pool-side user stats")
 	crylog.Info("   i/d: increase/decrease number of threads by 1")
 	crylog.Info("   q: quit")
 	crylog.Info("   <enter>: override a paused miner")
-}
-
-func startKeyboardScanning() {
-	scanner := bufio.NewScanner(os.Stdin)
-	go func() {
-		for scanner.Scan() {
-			b := scanner.Text()
-			switch b {
-			case "i":
-				pokeJobDispatcher(INCREASE_THREADS_POKE)
-			case "d":
-				pokeJobDispatcher(DECREASE_THREADS_POKE)
-			case "h", "s":
-				pokeSuccess := pokeJobDispatcher(PRINT_STATS_POKE)
-				if !pokeSuccess {
-					// stratum client is probably dead due to bad internet connection, but it should
-					// still be safe to print stats.
-					printStats(false)
-				}
-			case "q", "quit", "exit":
-				crylog.Info("quitting due to keyboard command")
-				os.Exit(0)
-			case "?", "help":
-				printKeyboardCommands()
-			case "p":
-				err := printPoolSideStats()
-				if err != nil {
-					crylog.Error("Failed to get pool side user stats:", err)
-				}
-			}
-			if len(b) == 0 {
-				// Ignore enter-hit mining override if on battery power
-				if atomic.LoadInt32(&batteryPower) > 0 {
-					crylog.Warn("on battery power, keyboard overrides ignored")
-					continue
-				}
-				pokeSuccess := pokeJobDispatcher(ENTER_HIT_POKE)
-				if pokeSuccess {
-					if atomic.LoadInt32(&manualMinerToggle) == 0 {
-						atomic.StoreInt32(&manualMinerToggle, 1)
-					} else {
-						atomic.StoreInt32(&manualMinerToggle, 0)
-					}
-				}
-			}
-		}
-		crylog.Error("Scanning terminated")
-	}()
-}
-
-func printPoolSideStats() error {
-	c := &http.Client{
-		Timeout: 15 * time.Second,
-	}
-	uri := "https://cryptonote.social/json/WorkerStats"
-	sbody := "{\"Coin\": \"xmr\", \"Worker\": \"" + mc.Username + "\"}\n"
-	body := strings.NewReader(sbody)
-	resp, err := c.Post(uri, "", body)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	s := &struct {
-		Code             int
-		CycleProgress    float64
-		Hashrate1        int64
-		Hashrate24       int64
-		LifetimeHashes   int64
-		LifetimeBestHash int64
-		Donate           float64
-		AmountPaid       float64
-		AmountOwed       float64
-	}{}
-	err = json.Unmarshal(b, &s)
-	if err != nil {
-		return err
-	}
-
-	// Now get pool stats
-	uri = "https://cryptonote.social/json/PoolStats"
-	sbody = "{\"Coin\": \"xmr\"}\n"
-	body = strings.NewReader(sbody)
-	resp2, err := http.DefaultClient.Post(uri, "", body)
-	if err != nil {
-		return err
-	}
-	defer resp2.Body.Close()
-	b, err = ioutil.ReadAll(resp2.Body)
-	if err != nil {
-		return err
-	}
-	ps := &struct {
-		Code               int
-		NextBlockReward    float64
-		Margin             float64
-		PPROPProgress      float64
-		PPROPHashrate      int64
-		NetworkDifficulty  int64
-		SmoothedDifficulty int64 // Network difficulty averaged over the past hour
-	}{}
-	err = json.Unmarshal(b, &ps)
-	if err != nil {
-		return err
-	}
-
-	s.CycleProgress /= (1.0 + ps.Margin)
-
-	diff := float64(ps.SmoothedDifficulty)
-	if diff == 0.0 {
-		diff = float64(ps.NetworkDifficulty)
-	}
-	hr := float64(ps.PPROPHashrate)
-	var ttreward string
-	if hr > 0.0 {
-		ttr := (diff*(1.0+ps.Margin) - (ps.PPROPProgress * diff)) / hr / 3600.0 / 24.0
-		if ttr > 0.0 {
-			if ttr < 1.0 {
-				ttr *= 24.0
-				if ttr < 1.0 {
-					ttr *= 60.0
-					ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " min"
-				} else {
-					ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " hrs"
-				}
-			} else {
-				ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " days"
-			}
-		} else if ttr < 0.0 {
-			ttreward = "overdue"
-		}
-	}
-
-	crylog.Info("==========================================")
-	crylog.Info("User            :", mc.Username)
-	crylog.Info("Progress        :", strconv.FormatFloat(s.CycleProgress*100.0, 'f', 5, 64)+"%")
-	crylog.Info("1 Hr Hashrate   :", s.Hashrate1)
-	crylog.Info("24 Hr Hashrate  :", s.Hashrate24)
-	crylog.Info("Lifetime Hashes :", prettyInt(s.LifetimeHashes))
-	crylog.Info("Paid            :", strconv.FormatFloat(s.AmountPaid, 'f', 12, 64), "$XMR")
-	if s.AmountOwed > 0.0 {
-		crylog.Info("Amount Owed     :", strconv.FormatFloat(s.AmountOwed, 'f', 12, 64), "$XMR")
-	}
-	/*crylog.Info("PPROP Progress         :", strconv.FormatFloat(ps.PPROPProgress*100.0, 'f', 5, 64)+"%")*/
-	crylog.Info("")
-	crylog.Info("Estimated stats :")
-	if len(ttreward) > 0 {
-		crylog.Info("  Time to next reward:", ttreward)
-	}
-	if ps.NextBlockReward > 0.0 && s.CycleProgress > 0.0 {
-		crylog.Info("  Reward accumulated :", strconv.FormatFloat(ps.NextBlockReward*s.CycleProgress, 'f', 12, 64), "$XMR")
-	}
-	crylog.Info("==========================================")
-
-	return nil
 }
 
 func prettyInt(i int64) string {
@@ -558,128 +209,38 @@ func monitorScreenSaver(ch chan ScreenState) {
 	for state := range ch {
 		switch state {
 		case SCREEN_IDLE:
-			crylog.Info("Screen idle")
-			atomic.StoreInt32(&screenIdle, 1)
-			pokeJobDispatcher(SCREEN_IDLE_POKE)
+			minerlib.ReportIdleScreenState(true)
 		case SCREEN_ACTIVE:
-			crylog.Info("Screen active")
-			atomic.StoreInt32(&screenIdle, 0)
-			pokeJobDispatcher(SCREEN_ON_POKE)
+			minerlib.ReportIdleScreenState(false)
 		case BATTERY_POWER:
-			crylog.Info("Battery power")
-			atomic.StoreInt32(&batteryPower, 1)
-			pokeJobDispatcher(BATTERY_POWER_POKE)
+			minerlib.ReportPowerState(true)
 		case AC_POWER:
-			crylog.Info("AC power")
-			atomic.StoreInt32(&batteryPower, 0)
-			pokeJobDispatcher(AC_POWER_POKE)
+			minerlib.ReportPowerState(false)
 		}
 	}
 }
 
-// Poke the job dispatcher. Returns false if the client is not currently alive.
-func pokeJobDispatcher(pokeMsg int) bool {
-	clMutex.Lock()
-	alive := clientAlive
-	clMutex.Unlock()
-	if !alive {
-		// jobs will block, so just ignore
-		crylog.Warn("Stratum client is not alive. Ignoring poke:", pokeMsg)
-		return false
+func getActivityMessage(activityState int) string {
+	switch activityState {
+	case minerlib.MINING_PAUSED_NO_CONNECTION:
+		return "PAUSED: no connection."
+	case minerlib.MINING_PAUSED_SCREEN_ACTIVITY:
+		return "PAUSED: screen is active. Hit <enter> to override."
+	case minerlib.MINING_PAUSED_BATTERY_POWER:
+		return "PAUSED: on battery power. Hit <enter> to override."
+	case minerlib.MINING_PAUSED_USER_OVERRIDE:
+		return "PAUSED: keyboard override active. Hit <enter> to remove override."
+	case minerlib.MINING_PAUSED_TIME_EXCLUDED:
+		return "PAUSED: within time of day exclusion. Hit <enter> to override."
+	case minerlib.MINING_ACTIVE:
+		return "ACTIVE"
+	case minerlib.MINING_ACTIVE_USER_OVERRIDE:
+		return "ACTIVE: keyboard override active. Hit <enter> to remove override."
 	}
-	pokeChannel <- pokeMsg
-	return true
-}
-
-func miningActive() bool {
-	if atomic.LoadInt32(&batteryPower) > 0 {
-		return false
-	}
-	if atomic.LoadInt32(&manualMinerToggle) > 0 {
-		// keyboard override to always mine no matter what
-		return true
-	}
-	if atomic.LoadInt32(&screenIdle) == 0 {
-		// don't mine if screen is active
-		return false
-	}
-	if timeExcluded() {
-		// don't mine if we're in the excluded time range
-		return false
-	}
-	return true
-}
-
-func getActivityMessage() string {
-	battery := atomic.LoadInt32(&batteryPower) > 0
-	if battery {
-		return "PAUSED due to running on battery power"
-	}
-
-	saver := atomic.LoadInt32(&screenIdle) > 0
-	toggled := atomic.LoadInt32(&manualMinerToggle) > 0
-
-	onoff := ""
-
-	if timeExcluded() {
-		if !toggled {
-			onoff = "PAUSED due to -exclude hour range. <enter> to mine anyway"
-		} else {
-			onoff = "ACTIVE (threads=" + strconv.Itoa(mc.Threads) + ") due to keyboard override. <enter> to undo override"
-		}
-	} else if !saver {
-		if !toggled {
-			onoff = "PAUSED until screen lock. <enter> to mine anyway"
-		} else {
-			onoff = "ACTIVE (threads=" + strconv.Itoa(mc.Threads) + ") due to keyboard override. <enter> to undo override"
-		}
+	crylog.Fatal("Unknown activity state:", activityState)
+	if activityState > 0 {
+		return "ACTIVE: unknown reason"
 	} else {
-		onoff = "ACTIVE (threads=" + strconv.Itoa(mc.Threads) + ")"
+		return "PAUSED: unknown reason"
 	}
-	return onoff
-}
-
-func handlePoke(wasMining bool, poke int) int {
-	if poke == PRINT_STATS_POKE {
-		if !wasMining {
-			printStats(wasMining)
-			return HANDLED
-		}
-		// If we are actively mining we'll want to accumulate stats from workers before printing
-		// stats for accuracy, so just trigger a fall-through and main loop will sync+dump stats.
-		return USE_CACHED
-	}
-	if poke == INCREASE_THREADS_POKE {
-		atomic.StoreUint32(&stopper, 1)
-		wg.Wait()
-		t := rx.AddThread()
-		if t < 0 {
-			crylog.Error("Failed to add another thread")
-			return USE_CACHED
-		}
-		mc.Threads = t
-		crylog.Info("Increased # of threads to:", mc.Threads)
-		resetRecentStats()
-		return USE_CACHED
-	}
-	if poke == DECREASE_THREADS_POKE {
-		atomic.StoreUint32(&stopper, 1)
-		wg.Wait()
-		t := rx.RemoveThread()
-		if t < 0 {
-			crylog.Error("Failed to decrease threads")
-			return USE_CACHED
-		}
-		mc.Threads = t
-		crylog.Info("Decreased # of threads to:", mc.Threads)
-		resetRecentStats()
-		return USE_CACHED
-	}
-	isMiningNow := miningActive()
-	if wasMining != isMiningNow {
-		// mining state was toggled so fall through using last received job which will
-		// appropriately halt or restart any mining threads and/or print stats.
-		return USE_CACHED
-	}
-	return HANDLED
 }

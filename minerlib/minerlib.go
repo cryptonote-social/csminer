@@ -10,7 +10,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"runtime"
-	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +30,9 @@ const (
 
 	// Indicates miner is paused, and is in the "user focred mining pause" state.
 	MINING_PAUSED_USER_OVERRIDE = -5
+
+	// Indicates miner is paused because we're in the user-excluded time period
+	MINING_PAUSED_TIME_EXCLUDED = -6
 
 	// Indicates miner is actively mining
 	MINING_ACTIVE = 1
@@ -53,10 +56,11 @@ const (
 
 var (
 	// miner config
-	configMutex sync.Mutex
-	plArgs      *PoolLoginArgs
-	threads     int
-	lastSeed    []byte
+	configMutex                      sync.Mutex
+	plArgs                           *PoolLoginArgs
+	threads                          int
+	lastSeed                         []byte
+	excludeHourStart, excludeHourEnd int
 
 	doneChanMutex      sync.Mutex
 	miningLoopDoneChan chan bool // non-nil when a mining loop is active
@@ -94,6 +98,9 @@ type PoolLoginArgs struct {
 
 	// config: advanced options config string, can be null.
 	Config string
+
+	// UseTLS: Whether to use TLS when connecting to the pool
+	UseTLS bool
 }
 
 type PoolLoginResponse struct {
@@ -106,8 +113,9 @@ type PoolLoginResponse struct {
 	// code > 1: login unsuccessful; pool server refused login. Message will contain information that
 	//           can be shown to user to help fix the problem. Caller should retry with new login
 	//           parameters.
-	Code    int
-	Message string
+	Code      int
+	Message   string
+	MessageID int
 }
 
 // See MINING_ACTIVITY const values above for all possibilities. Shorter story: negative value ==
@@ -127,6 +135,10 @@ func getMiningActivityState() int {
 
 	if miningOverride == OVERRIDE_MINE {
 		return MINING_ACTIVE_USER_OVERRIDE
+	}
+
+	if timeExcluded() {
+		return MINING_PAUSED_TIME_EXCLUDED
 	}
 
 	if batteryPower {
@@ -154,7 +166,14 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 
 	configMutex.Lock()
 	defer configMutex.Unlock()
+	r := &PoolLoginResponse{}
 	loginName := args.Username
+	if strings.Index(args.Username, ".") != -1 {
+		// Handle this specially since xmrig style login might cause users to specify wallet.username here
+		r.Code = 2
+		r.Message = "The '.' character is not allowed in usernames."
+		return r
+	}
 	if args.Wallet != "" {
 		loginName = args.Wallet + "." + args.Username
 	}
@@ -162,32 +181,32 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	config := args.Config
 	rigid := args.RigID
 
-	r := &PoolLoginResponse{}
-	err, code, message, jc := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
+	err, code, message, jc := cl.Connect("cryptonote.social:5555", args.UseTLS, agent, loginName, config, rigid)
 	if err != nil {
 		if code != 0 {
-			crylog.Error("Pool server did not allow login due to error:")
-			crylog.Error("  ::::::", message, "::::::")
+			//crylog.Error("Pool server did not allow login due to error:")
+			//crylog.Error("  ::::::", message, "::::::")
 			r.Code = 2
 			r.Message = message
 			return r
 		}
-		crylog.Error("Couldn't connect to pool server:", err)
+		//crylog.Error("Couldn't connect to pool server:", err)
 		r.Code = -1
 		r.Message = err.Error()
 		return r
 	} else if code != 0 {
 		// We got a warning from the stratum server
-		crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
-		if code == client.NO_WALLET_SPECIFIED_WARNING_CODE {
-			crylog.Warn("WARNING: your username is not yet associated with any")
-			crylog.Warn("   wallet id. You should fix this immediately.")
-		} else {
-			crylog.Warn("WARNING from pool server")
-			crylog.Warn("   Message:", message)
-		}
-		crylog.Warn("   Code   :", code, "\n")
-		crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
+		//crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
+		//if code == client.NO_WALLET_SPECIFIED_WARNING_CODE {
+		//crylog.Warn("WARNING: your username is not yet associated with any")
+		//crylog.Warn("   wallet id. You should fix this immediately.")
+		//} else {
+		//crylog.Warn("WARNING from pool server")
+		//crylog.Warn("   Message:", message)
+		//}
+		//crylog.Warn("   Code   :", code, "\n")
+		//crylog.Warn(":::::::::::::::::::::::::::::::::::::::::::::::::::::::::\n")
+		r.MessageID = code
 		r.Message = message
 	}
 
@@ -236,6 +255,9 @@ func InitMiner(args *InitMinerArgs) *InitMinerResponse {
 		r.Message = "exclude_hour_start and exclude_hour_end must each be between 0 and 24"
 		return r
 	}
+	excludeHourStart = hr1
+	excludeHourEnd = hr2
+
 	code := rx.InitRX(args.Threads)
 	if code < 0 {
 		crylog.Error("Failed to initialize RandomX")
@@ -250,6 +272,7 @@ func InitMiner(args *InitMinerArgs) *InitMinerResponse {
 	}
 	stats.Init()
 	threads = args.Threads
+	crylog.Info("minerlib initialized")
 	return r
 }
 
@@ -262,12 +285,9 @@ func reconnectClient() <-chan *client.MultiClientJob {
 		if plArgs.Wallet != "" {
 			loginName = plArgs.Wallet + "." + plArgs.Username
 		}
-		agent := plArgs.Agent
-		config := plArgs.Config
-		rigid := plArgs.RigID
-
 		crylog.Info("Attempting to reconnect...")
-		err, code, message, jc := cl.Connect("cryptonote.social:5555", false /*useTLS*/, agent, loginName, config, rigid)
+		err, code, message, jc := cl.Connect(
+			"cryptonote.social:5555", plArgs.UseTLS, plArgs.Agent, loginName, plArgs.Config, plArgs.RigID)
 		configMutex.Unlock()
 		if err == nil {
 			return jc
@@ -296,6 +316,8 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 	var job *client.MultiClientJob
 	for {
 		select {
+		case <-time.After(15 * time.Second):
+			break
 		case job = <-jobChan:
 			if job == nil {
 				crylog.Info("stratum client closed, reconnecting...")
@@ -305,13 +327,14 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 				stats.ResetRecent()
 				continue
 			}
+			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 		case poke := <-pokeChannel:
 			if poke == EXIT_LOOP_POKE {
 				crylog.Info("Stopping mining loop")
 				stopWorkers()
 				return
 			}
-			pokeRes := handlePoke(true /*wasJustMining*/, poke)
+			pokeRes := handlePoke(poke)
 			switch pokeRes {
 			case HANDLED:
 				continue
@@ -325,27 +348,8 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 				continue
 			}
 		}
-		crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 
 		stopWorkers()
-
-		as := getMiningActivityState()
-		if as < 0 {
-			if wasJustMining {
-				printStats(true)
-				crylog.Info("Mining is now paused:", as)
-				wasJustMining = false
-				stats.ResetRecent()
-			}
-			continue
-		}
-		if !wasJustMining {
-			crylog.Info("Mining is now active:", as)
-			wasJustMining = true
-			stats.ResetRecent()
-		} else {
-			printStats(true)
-		}
 
 		// Check if we need to reinitialize rx dataset
 		newSeed, err := hex.DecodeString(job.SeedHash)
@@ -357,6 +361,21 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 			crylog.Info("New seed:", job.SeedHash)
 			rx.SeedRX(newSeed, runtime.GOMAXPROCS(0))
 			lastSeed = newSeed
+			stats.ResetRecent()
+		}
+
+		as := getMiningActivityState()
+		if as < 0 {
+			if wasJustMining {
+				crylog.Info("Mining is now paused:", as)
+				wasJustMining = false
+				stats.ResetRecent()
+			}
+			continue
+		}
+		if !wasJustMining {
+			crylog.Info("Mining is now active:", as)
+			wasJustMining = true
 			stats.ResetRecent()
 		}
 
@@ -378,8 +397,8 @@ func stopWorkers() {
 	stats.RecentStatsNowAccurate()
 }
 
-func handlePoke(wasMining bool, poke int) int {
-	crylog.Info("Handling poke:", poke, wasMining)
+func handlePoke(poke int) int {
+	//crylog.Info("Handling poke:", poke)
 	switch poke {
 	case INCREASE_THREADS_POKE:
 		stopWorkers()
@@ -412,6 +431,7 @@ func handlePoke(wasMining bool, poke int) int {
 		return USE_CACHED
 
 	case STATE_CHANGE_POKE:
+		stats.ResetRecent()
 		return USE_CACHED
 
 	case UPDATE_STATS_POKE:
@@ -427,18 +447,17 @@ type GetMiningStateResponse struct {
 	Threads        int
 }
 
+func ForceRecentStatsUpdate() {
+	pokeJobDispatcher(UPDATE_STATS_POKE)
+}
+
 func GetMiningState() *GetMiningStateResponse {
 	as := getMiningActivityState()
 	var isMining bool
 	if as > 0 {
 		isMining = true
 	}
-	s, secondsSinceReset, _ := stats.GetSnapshot(isMining)
-	if secondsSinceReset > 10.0 && s.RecentHashrate < -1.0 {
-		// We have enough of a window to compute an accurate recent hashrate, so
-		// force the mining loop to do so for the next call.
-		pokeJobDispatcher(UPDATE_STATS_POKE)
-	}
+	s, _, _ := stats.GetSnapshot(isMining)
 	configMutex.Lock()
 	defer configMutex.Unlock()
 	return &GetMiningStateResponse{
@@ -468,23 +487,25 @@ func DecreaseThreads() {
 
 // Poke the job dispatcher. Returns false if the client is not currently alive.
 func pokeJobDispatcher(pokeMsg int) {
-	crylog.Info("Poking job dispatcher:", pokeMsg)
+	//crylog.Info("Poking job dispatcher:", pokeMsg)
 	pokeChannel <- pokeMsg
 }
 
+/*
 func printStats(isMining bool) {
 	s, _, window := stats.GetSnapshot(isMining)
+	configMutex.Lock()
+	if disableStatsPrinting {
+		configMutex.Unlock()
+		return
+	}
 	crylog.Info("Recent hashrate computation window (seconds):", window)
 	crylog.Info("=====================================")
-	//crylog.Info("Shares    [accepted:rejected]:", s.SharesAccepted, ":", s.SharesRejected)
-	//crylog.Info("Hashes          [client:pool]:", s.ClientSideHashes, ":", s.PoolSideHashes)
 	if s.RecentHashrate >= 0.0 {
 		crylog.Info("Hashrate:", strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
-		//strconv.FormatFloat(s.Hashrate, 'f', 2, 64), ":",
 	} else {
 		crylog.Info("Hashrate: --calculating--")
 	}
-	configMutex.Lock()
 	uname := plArgs.Username
 	crylog.Info("Threads:", threads)
 	configMutex.Unlock()
@@ -507,6 +528,7 @@ func printStats(isMining bool) {
 	}
 	crylog.Info("=====================================")
 }
+*/
 
 func goMine(job client.MultiClientJob, thread int) {
 	defer wg.Done()
@@ -567,6 +589,7 @@ func OverrideMiningActivityState(mine bool) {
 		return
 	}
 	crylog.Info("New mining override state:", newState)
+	miningOverride = newState
 	pokeJobDispatcher(STATE_CHANGE_POKE)
 }
 
@@ -578,6 +601,7 @@ func RemoveMiningActivityOverride() {
 	}
 	crylog.Info("Removing mining override")
 	miningOverride = 0
+	pokeJobDispatcher(STATE_CHANGE_POKE)
 }
 
 func ReportIdleScreenState(isIdle bool) {
@@ -600,4 +624,15 @@ func ReportPowerState(battery bool) {
 	crylog.Info("Battery state changed to:", battery)
 	batteryPower = battery
 	pokeJobDispatcher(STATE_CHANGE_POKE)
+}
+
+// configMutex should be locked before calling
+func timeExcluded() bool {
+	currHr := time.Now().Hour()
+	startHr := excludeHourStart
+	endHr := excludeHourEnd
+	if startHr < endHr {
+		return currHr >= startHr && currHr < endHr
+	}
+	return currHr < startHr && currHr >= endHr
 }

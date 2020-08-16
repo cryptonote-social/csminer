@@ -1,7 +1,7 @@
 package stats
 
 import (
-	//"github.com/cryptonote-social/csminer/crylog"
+	//	"github.com/cryptonote-social/csminer/crylog"
 
 	"encoding/json"
 	"io/ioutil"
@@ -16,9 +16,14 @@ var (
 	mutex sync.RWMutex
 
 	// client side stats
-	startTime                      time.Time // when the miner started up
-	lastResetTime                  time.Time
-	lastUpdateTime                 time.Time
+	startTime time.Time // when the miner started up
+
+	recentStatsResetTime time.Time // last time the user instructed recent stats to be reset
+
+	accurateTime         time.Time // time of last call to RecentStatsNowAccurate
+	recentHashesAccurate int64     // snapshotted by RecentStatsNowAccurate
+	totalHashesAccurate  int64     // snapshotted by RecentStatsNowAccurate
+
 	sharesAccepted                 int64
 	sharesRejected                 int64
 	poolSideHashes                 int64
@@ -39,14 +44,19 @@ func Init() {
 	defer mutex.Unlock()
 	now := time.Now()
 	startTime = now
-	lastResetTime = now
-	lastUpdateTime = now
+	recentStatsResetTime = now
+	accurateTime = now
 }
 
 // Call whenever we're at at a point where recent hashrate calculation would be accurate,
 // e.g. after all worker threads have been tallied.
 func RecentStatsNowAccurate() {
-	lastUpdateTime = time.Now()
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	recentHashesAccurate = recentHashes
+	totalHashesAccurate = clientSideHashes
+	accurateTime = time.Now()
 }
 
 func TallyHashes(hashes int64) {
@@ -76,8 +86,8 @@ func ResetRecent() {
 	defer mutex.Unlock()
 	recentHashes = 0
 	now := time.Now()
-	lastUpdateTime = now
-	lastResetTime = now
+	accurateTime = now
+	recentStatsResetTime = now
 }
 
 type Snapshot struct {
@@ -92,7 +102,7 @@ type Snapshot struct {
 	LifetimeHashes          int64
 	Paid, Owed, Accumulated float64
 	TimeToReward            string
-	SecondsOld              int // how many seconds out of date the pool stats are
+	SecondsOld              int // how many seconds out of date the pool stats are, or -1 if none available yet
 }
 
 func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64, secondsRecentWindow float64) {
@@ -108,30 +118,24 @@ func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64, seconds
 	if isMining {
 		// if we're actively mining then hash count is only accurate
 		// as of the last update time
-		elapsedOverall = lastUpdateTime.Sub(startTime).Seconds()
+		elapsedOverall = accurateTime.Sub(startTime).Seconds()
 	} else {
 		elapsedOverall = time.Now().Sub(startTime).Seconds()
 	}
-	// Recent stats are only accurate up to the last update time
-	elapsedRecent := lastUpdateTime.Sub(lastResetTime).Seconds()
+	if elapsedOverall > 0.0 {
+		r.Hashrate = float64(totalHashesAccurate) / elapsedOverall
+	}
 
-	if !isMining {
-		r.RecentHashrate = 0.0
-		if elapsedOverall > 0.0 {
-			r.Hashrate = float64(clientSideHashes) / elapsedOverall
-		}
-	} else {
+	var elapsedRecent float64
+	if isMining {
+		// Recent stats are only accurate up to the last snapshot time
+		elapsedRecent = accurateTime.Sub(recentStatsResetTime).Seconds()
 		if elapsedRecent > 5.0 {
 			// For accurate results, we require at least 5 seconds of mining during the recent
 			// period in order to return a recent hashrate.
-			r.RecentHashrate = float64(recentHashes) / elapsedRecent
+			r.RecentHashrate = float64(recentHashesAccurate) / elapsedRecent
 		} else {
 			r.RecentHashrate = -1.0 // indicates not enough data
-		}
-		if elapsedOverall > 0.0 {
-			r.Hashrate = float64(clientSideHashes) / elapsedOverall
-		} else {
-			r.Hashrate = 0.0
 		}
 	}
 
@@ -143,8 +147,12 @@ func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64, seconds
 		r.Accumulated = accumulated
 		r.TimeToReward = timeToReward
 	}
-	r.SecondsOld = int(time.Now().Sub(lastPoolUpdateTime).Seconds())
-	return r, time.Now().Sub(lastResetTime).Seconds(), elapsedRecent
+	if lastPoolUpdateTime.IsZero() {
+		r.SecondsOld = -1.0
+	} else {
+		r.SecondsOld = int(time.Now().Sub(lastPoolUpdateTime).Seconds())
+	}
+	return r, time.Now().Sub(recentStatsResetTime).Seconds(), elapsedRecent
 }
 
 func RefreshPoolStats(username string) error {

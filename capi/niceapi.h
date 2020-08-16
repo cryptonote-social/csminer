@@ -113,6 +113,9 @@ typedef struct get_miner_state_response {
   //	MINING_PAUSED_USER_OVERRIDE = -5
   //     indicates miner is paused, and is in the "user focred mining pause" state.
   //
+  //    MINING_PAUSED_TIME_EXCLUDED = -6
+  //     indicates miner is paused because we're in the user-excluded time period
+  //
   //	MINING_ACTIVE = 1
   //     indicates miner is actively mining
   //
@@ -135,8 +138,9 @@ typedef struct get_miner_state_response {
   // NOTE: you must free() username
   const char* username; 
 
-  // Stats below aremay be stale, with the seconds_old field specifying in seconds how out of
-  // date they are.
+  // Stats below may be stale, with the seconds_old field specifying in seconds how out of
+  // date they are. A negative value of seconds_old indicates pool stats have yet to be fetched
+  // and should be ignored.
   int seconds_old;
   
   long lifetime_hashes; // total sum of hashes contributed to the pool under this username
