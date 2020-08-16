@@ -433,7 +433,7 @@ func GetMiningState() *GetMiningStateResponse {
 	if as > 0 {
 		isMining = true
 	}
-	s, secondsSinceReset := stats.GetSnapshot(isMining)
+	s, secondsSinceReset, _ := stats.GetSnapshot(isMining)
 	if secondsSinceReset > 10.0 && s.RecentHashrate < -1.0 {
 		// We have enough of a window to compute an accurate recent hashrate, so
 		// force the mining loop to do so for the next call.
@@ -449,7 +449,7 @@ func GetMiningState() *GetMiningStateResponse {
 }
 
 func updatePoolStats(isMining bool) {
-	s, _ := stats.GetSnapshot(isMining)
+	s, _, _ := stats.GetSnapshot(isMining)
 	configMutex.Lock()
 	uname := plArgs.Username
 	configMutex.Unlock()
@@ -473,8 +473,8 @@ func pokeJobDispatcher(pokeMsg int) {
 }
 
 func printStats(isMining bool) {
-	s, sec := stats.GetSnapshot(isMining)
-	crylog.Info("Recent hashrate computation window (seconds):", sec)
+	s, _, window := stats.GetSnapshot(isMining)
+	crylog.Info("Recent hashrate computation window (seconds):", window)
 	crylog.Info("=====================================")
 	//crylog.Info("Shares    [accepted:rejected]:", s.SharesAccepted, ":", s.SharesRejected)
 	//crylog.Info("Hashes          [client:pool]:", s.ClientSideHashes, ":", s.PoolSideHashes)

@@ -95,7 +95,7 @@ type Snapshot struct {
 	SecondsOld              int // how many seconds out of date the pool stats are
 }
 
-func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64) {
+func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64, secondsRecentWindow float64) {
 	mutex.Lock()
 	defer mutex.Unlock()
 	r := &Snapshot{}
@@ -144,7 +144,7 @@ func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64) {
 		r.TimeToReward = timeToReward
 	}
 	r.SecondsOld = int(time.Now().Sub(lastPoolUpdateTime).Seconds())
-	return r, time.Now().Sub(lastResetTime).Seconds()
+	return r, time.Now().Sub(lastResetTime).Seconds(), elapsedRecent
 }
 
 func RefreshPoolStats(username string) error {
