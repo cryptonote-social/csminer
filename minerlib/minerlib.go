@@ -458,6 +458,13 @@ func GetMiningState() *GetMiningStateResponse {
 		isMining = true
 	}
 	s, _, _ := stats.GetSnapshot(isMining)
+	if plArgs == nil {
+		s.PoolUsername = ""
+		s.SecondsOld = -1.0
+	} else if plArgs.Username != s.PoolUsername {
+		s.PoolUsername = plArgs.Username
+		s.SecondsOld = -1.0
+	}
 	configMutex.Lock()
 	defer configMutex.Unlock()
 	return &GetMiningStateResponse{
