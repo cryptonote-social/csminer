@@ -122,9 +122,10 @@ typedef struct get_miner_state_response {
 
   int  threads;  // number of threads actively mining
 
-  float recent_hashrate; // hashrate of the miner, computed over its most recent activity
-					   // period. This stat is always 100% up to date.
-
+  // Client side hashrate of the miner, computed over its most recent activity period. Will be 0.0
+  // if the miner is inactive. Will be a negative value if the recent activity period is too short
+  // to compute an accurate result.
+  float recent_hashrate; 
 
   // username of the miner whose pool stats appear below. Small chance this username may not match
   // the currently logged in user if a new login recently took place, so always check the username

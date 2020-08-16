@@ -45,6 +45,7 @@ const (
 	INCREASE_THREADS_POKE = 6
 	DECREASE_THREADS_POKE = 7
 	EXIT_LOOP_POKE        = 8
+	UPDATE_STATS_POKE     = 9
 
 	OVERRIDE_MINE  = 1
 	OVERRIDE_PAUSE = 2
@@ -369,15 +370,18 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 	defer crylog.Info("Mining loop terminated")
 }
 
-// Stop all active worker threads and wait for them to finish before returning
+// Stop all active worker threads and wait for them to finish before returning. Should
+// only be called by the MiningLoop.
 func stopWorkers() {
 	atomic.StoreUint32(&stopper, 1)
 	wg.Wait()
+	stats.RecentStatsNowAccurate()
 }
 
 func handlePoke(wasMining bool, poke int) int {
 	crylog.Info("Handling poke:", poke, wasMining)
-	if poke == INCREASE_THREADS_POKE {
+	switch poke {
+	case INCREASE_THREADS_POKE:
 		stopWorkers()
 		configMutex.Lock()
 		t := rx.AddThread()
@@ -391,8 +395,8 @@ func handlePoke(wasMining bool, poke int) int {
 		crylog.Info("Increased # of threads to:", t)
 		stats.ResetRecent()
 		return USE_CACHED
-	}
-	if poke == DECREASE_THREADS_POKE {
+
+	case DECREASE_THREADS_POKE:
 		stopWorkers()
 		configMutex.Lock()
 		t := rx.RemoveThread()
@@ -406,10 +410,14 @@ func handlePoke(wasMining bool, poke int) int {
 		crylog.Info("Decreased # of threads to:", t)
 		stats.ResetRecent()
 		return USE_CACHED
-	}
-	if poke == STATE_CHANGE_POKE {
+
+	case STATE_CHANGE_POKE:
+		return USE_CACHED
+
+	case UPDATE_STATS_POKE:
 		return USE_CACHED
 	}
+	crylog.Error("Unexpected poke:", poke)
 	return HANDLED
 }
 
@@ -425,7 +433,12 @@ func GetMiningState() *GetMiningStateResponse {
 	if as > 0 {
 		isMining = true
 	}
-	s := stats.GetSnapshot(isMining)
+	s, recentSeconds := stats.GetSnapshot(isMining)
+	if recentSeconds > 10.0 && s.RecentHashrate < -1.0 {
+		// We have enough of a window to compute an accurate recent hashrate, so
+		// force the mining loop to do so for the next call.
+		pokeJobDispatcher(UPDATE_STATS_POKE)
+	}
 	configMutex.Lock()
 	defer configMutex.Unlock()
 	return &GetMiningStateResponse{
@@ -436,7 +449,7 @@ func GetMiningState() *GetMiningStateResponse {
 }
 
 func updatePoolStats(isMining bool) {
-	s := stats.GetSnapshot(isMining)
+	s, _ := stats.GetSnapshot(isMining)
 	configMutex.Lock()
 	uname := plArgs.Username
 	configMutex.Unlock()
@@ -460,13 +473,15 @@ func pokeJobDispatcher(pokeMsg int) {
 }
 
 func printStats(isMining bool) {
-	s := stats.GetSnapshot(isMining)
+	s, _ := stats.GetSnapshot(isMining)
 	crylog.Info("=====================================")
 	//crylog.Info("Shares    [accepted:rejected]:", s.SharesAccepted, ":", s.SharesRejected)
 	//crylog.Info("Hashes          [client:pool]:", s.ClientSideHashes, ":", s.PoolSideHashes)
-	if s.RecentHashrate > 0.0 {
+	if s.RecentHashrate >= 0.0 {
 		crylog.Info("Hashrate:", strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
 		//strconv.FormatFloat(s.Hashrate, 'f', 2, 64), ":",
+	} else {
+		crylog.Info("Hashrate: --calculating--")
 	}
 	configMutex.Lock()
 	uname := plArgs.Username

@@ -1,7 +1,7 @@
 package stats
 
 import (
-	//"github.com/cryptonote-social/csminer/crylog"
+	"github.com/cryptonote-social/csminer/crylog"
 
 	"encoding/json"
 	"io/ioutil"
@@ -43,10 +43,13 @@ func Init() {
 	lastUpdateTime = now
 }
 
+func RecentStatsNowAccurate() {
+	lastUpdateTime = time.Now()
+}
+
 func TallyHashes(hashes int64) {
 	mutex.Lock()
 	defer mutex.Unlock()
-	lastUpdateTime = time.Now()
 	clientSideHashes += hashes
 	recentHashes += hashes
 }
@@ -78,7 +81,9 @@ func ResetRecent() {
 type Snapshot struct {
 	SharesAccepted, SharesRejected   int64
 	ClientSideHashes, PoolSideHashes int64
-	Hashrate, RecentHashrate         float64
+	// A negative value for hashrate is used to indicate "still calculating" (e.g. not enough of a
+	// time window to be accurate)
+	Hashrate, RecentHashrate float64
 
 	// Pool stats
 	PoolUsername            string
@@ -88,7 +93,7 @@ type Snapshot struct {
 	SecondsOld              int // how many seconds out of date the pool stats are
 }
 
-func GetSnapshot(isMining bool) *Snapshot {
+func GetSnapshot(isMining bool) (s *Snapshot, elapsedRecent float64) {
 	mutex.Lock()
 	defer mutex.Unlock()
 	r := &Snapshot{}
@@ -106,11 +111,25 @@ func GetSnapshot(isMining bool) *Snapshot {
 		elapsedOverall = time.Now().Sub(startTime).Seconds()
 	}
 	// Recent stats are only accurate up to the last update time
-	elapsedRecent := lastUpdateTime.Sub(lastResetTime).Seconds()
+	elapsedRecent = lastUpdateTime.Sub(lastResetTime).Seconds()
 
-	if elapsedRecent > 0.0 && elapsedOverall > 0.0 {
-		r.Hashrate = float64(clientSideHashes) / elapsedOverall
-		r.RecentHashrate = float64(recentHashes) / elapsedRecent
+	crylog.Info("::", isMining, recentHashes, elapsedRecent)
+	if !isMining {
+		r.RecentHashrate = 0.0
+		if elapsedOverall > 0.0 {
+			r.Hashrate = float64(clientSideHashes) / elapsedOverall
+		}
+	} else {
+		if elapsedRecent > 1.0 {
+			r.RecentHashrate = float64(recentHashes) / elapsedRecent
+		} else {
+			r.RecentHashrate = -1.0 // indicates not enough data
+		}
+		if elapsedOverall > 0.0 {
+			r.Hashrate = float64(clientSideHashes) / elapsedOverall
+		} else {
+			r.Hashrate = 0.0
+		}
 	}
 
 	if lastPoolUsername != "" {
@@ -122,7 +141,7 @@ func GetSnapshot(isMining bool) *Snapshot {
 		r.TimeToReward = timeToReward
 	}
 	r.SecondsOld = int(time.Now().Sub(lastPoolUpdateTime).Seconds())
-	return r
+	return r, elapsedRecent
 }
 
 func RefreshPoolStats(username string) error {
