@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
     }
     if (pl_resp.code == 1) {
 	  printf("Successful login #1.\n");
-	  if (pl_resp.message) {
+	  if (strlen(pl_resp.message) > 0) {
 		printf("   Pool returned warning: %s\n", pl_resp.message);
 	  }
 	}
@@ -80,6 +80,7 @@ int main(int argc, char* argv[]) {
 	get_miner_state_response ms_resp = get_miner_state();
 	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
 	printf("Threads active: %d\n", ms_resp.threads);
+    printf("Mining activity state: %d\n", ms_resp.mining_activity);
 	free((void*)ms_resp.username);
 	free((void*)ms_resp.time_to_reward);
 
@@ -91,6 +92,7 @@ int main(int argc, char* argv[]) {
         ms_resp = get_miner_state();
         printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
         printf("Threads active: %d\n", ms_resp.threads);
+        printf("Mining activity state: %d\n", ms_resp.mining_activity);
         free((void*)ms_resp.username);
         free((void*)ms_resp.time_to_reward);
         sleep(1);
@@ -107,7 +109,7 @@ int main(int argc, char* argv[]) {
     }
     if (pl_resp.code == 1) {
 	  printf("Successful login #2.\n");
-	  if (pl_resp.message) {
+	  if (strlen(pl_resp.message) > 0) {
 		printf("   Pool returned warning: %s\n", pl_resp.message);
 	  }
 	}
@@ -118,6 +120,7 @@ int main(int argc, char* argv[]) {
 	ms_resp = get_miner_state();
 	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
 	printf("Threads active: %d\n", ms_resp.threads);
+    printf("Mining activity state: %d\n", ms_resp.mining_activity);
 	free((void*)ms_resp.username);
 	free((void*)ms_resp.time_to_reward);
 
@@ -128,6 +131,7 @@ int main(int argc, char* argv[]) {
         ms_resp = get_miner_state();
         printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
         printf("Threads active: %d\n", ms_resp.threads);
+        printf("Mining activity state: %d\n", ms_resp.mining_activity);
         free((void*)ms_resp.username);
         free((void*)ms_resp.time_to_reward);
         sleep(1);
