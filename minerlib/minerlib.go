@@ -9,6 +9,7 @@ import (
 
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"runtime"
 	"strings"
 	"sync"
@@ -57,7 +58,7 @@ const (
 var (
 	// miner config
 	configMutex                      sync.Mutex
-	plArgs                           *PoolLoginArgs
+	plArgs                           *PoolLoginArgs // nil if nobody is currently logged in
 	threads                          int
 	lastSeed                         []byte
 	excludeHourStart, excludeHourEnd int
@@ -169,6 +170,7 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 
 	configMutex.Lock()
 	defer configMutex.Unlock()
+	plArgs = nil
 	r := &PoolLoginResponse{}
 	loginName := args.Username
 	if strings.Index(args.Username, ".") != -1 {
@@ -279,33 +281,39 @@ func InitMiner(args *InitMinerArgs) *InitMinerResponse {
 	threads = args.Threads
 	crylog.Info("minerlib initialized")
 	return r
+
 }
 
-// Returns nil if connection could not be established because of failed call to PoolLogin.
+// Returns nil if connection could not be established, in which case caller should make sure mining
+// loop isn't supposed to terminate, and otherwise try again after a brief sleep. On success, returns
+// a new job channel on which to continue listening for jobs.
 func reconnectClient() <-chan *client.MultiClientJob {
-	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
-	for {
-		configMutex.Lock()
-		loginName := plArgs.Username
-		if plArgs.Wallet != "" {
-			loginName = plArgs.Wallet + "." + plArgs.Username
-		}
-		crylog.Info("Attempting to reconnect...")
-		err, code, message, jc := cl.Connect(
-			"cryptonote.social:5555", plArgs.UseTLS, plArgs.Agent, loginName, plArgs.Config, plArgs.RigID)
-		configMutex.Unlock()
-		if err == nil {
-			return jc
-		}
-		if code != 0 {
-			crylog.Fatal("Pool server did not allow login due to error:", message)
-			panic("can't handle pool login error during reconnect")
-		}
-		crylog.Error("Couldn't connect to pool server:", err)
-		crylog.Info("Sleeping for", sleepSec, "seconds before trying again.")
-		time.Sleep(sleepSec)
-		sleepSec += time.Second
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
+	var err error
+	if plArgs == nil {
+		err = errors.New("plArgs was nil")
+		return nil
 	}
+	loginName := plArgs.Username
+	if plArgs.Wallet != "" {
+		loginName = plArgs.Wallet + "." + plArgs.Username
+	}
+	crylog.Info("Attempting to reconnect...")
+	err, code, message, jc := cl.Connect(
+		"cryptonote.social:5555", plArgs.UseTLS, plArgs.Agent, loginName, plArgs.Config, plArgs.RigID)
+	if err == nil {
+		if code != 0 {
+			crylog.Warn("Pool server returned login warning:", message)
+		}
+		return jc
+	}
+	crylog.Error("Connect to pool server failed:", err)
+	if code != 0 {
+		crylog.Error("Pool server did not allow login due to error:", message)
+	}
+	return nil
 }
 
 // Called by PoolLogin after succesful login.
@@ -319,39 +327,46 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 
 	wasJustMining := false
 	var job *client.MultiClientJob
+	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
+		crylog.Info("selecting")
 		select {
-		case <-time.After(15 * time.Second):
-			break
-		case job = <-jobChan:
-			if job == nil {
-				crylog.Info("stratum client closed, reconnecting...")
-				jobChan = reconnectClient()
-				// Set up fresh stats for new connection
-				stopWorkers()
-				stats.ResetRecent()
-				continue
-			}
-			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 		case poke := <-pokeChannel:
+			crylog.Info("poke!", poke)
 			if poke == EXIT_LOOP_POKE {
 				crylog.Info("Stopping mining loop")
 				stopWorkers()
 				return
 			}
-			pokeRes := handlePoke(poke)
-			switch pokeRes {
-			case HANDLED:
-				continue
-			case USE_CACHED:
-				if job == nil {
-					crylog.Warn("no job to work on")
-					continue
-				}
-			default:
-				crylog.Error("mystery poke:", pokeRes)
+			handlePoke(poke)
+			if job == nil {
+				crylog.Warn("no job to work on")
 				continue
 			}
+
+		case job = <-jobChan:
+			crylog.Info("job!", job)
+			if job == nil {
+				crylog.Info("stratum client closed, reconnecting...")
+				newChan := reconnectClient()
+				if newChan == nil {
+					crylog.Info("reconnect failed. sleeping for", sleepSec, "seconds before trying again")
+					time.Sleep(sleepSec)
+					sleepSec += time.Second
+					continue
+				}
+				// Set up fresh stats for new connection
+				stopWorkers()
+				stats.ResetRecent()
+				sleepSec = 3 * time.Second
+				jobChan = newChan
+				continue
+			}
+			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
+
+		case <-time.After(15 * time.Second):
+			crylog.Info("select timeout!")
+			break
 		}
 
 		stopWorkers()
@@ -369,7 +384,9 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 			stats.ResetRecent()
 		}
 
+		crylog.Info("Hi")
 		as := getMiningActivityState()
+		crylog.Info("Activity state:", as)
 		if as < 0 {
 			if wasJustMining {
 				crylog.Info("Mining is now paused:", as)
@@ -402,7 +419,7 @@ func stopWorkers() {
 	stats.RecentStatsNowAccurate()
 }
 
-func handlePoke(poke int) int {
+func handlePoke(poke int) {
 	//crylog.Info("Handling poke:", poke)
 	switch poke {
 	case INCREASE_THREADS_POKE:
@@ -412,13 +429,13 @@ func handlePoke(poke int) int {
 		if t < 0 {
 			configMutex.Unlock()
 			crylog.Error("Failed to add another thread")
-			return USE_CACHED
+			return
 		}
 		threads = t
 		configMutex.Unlock()
 		crylog.Info("Increased # of threads to:", t)
 		stats.ResetRecent()
-		return USE_CACHED
+		return
 
 	case DECREASE_THREADS_POKE:
 		stopWorkers()
@@ -427,23 +444,22 @@ func handlePoke(poke int) int {
 		if t < 0 {
 			configMutex.Unlock()
 			crylog.Error("Failed to decrease threads")
-			return USE_CACHED
+			return
 		}
 		threads = t
 		configMutex.Unlock()
 		crylog.Info("Decreased # of threads to:", t)
 		stats.ResetRecent()
-		return USE_CACHED
+		return
 
 	case STATE_CHANGE_POKE:
 		stats.ResetRecent()
-		return USE_CACHED
+		return
 
 	case UPDATE_STATS_POKE:
-		return USE_CACHED
+		return
 	}
 	crylog.Error("Unexpected poke:", poke)
-	return HANDLED
 }
 
 type GetMiningStateResponse struct {
@@ -483,8 +499,11 @@ func GetMiningState() *GetMiningStateResponse {
 func updatePoolStats(isMining bool) {
 	s, _, _ := stats.GetSnapshot(isMining)
 	configMutex.Lock()
+	defer configMutex.Unlock()
+	if plArgs == nil {
+		return
+	}
 	uname := plArgs.Username
-	configMutex.Unlock()
 	if uname != "" && (uname != s.PoolUsername || s.SecondsOld > 5) {
 		go stats.RefreshPoolStats(uname)
 	}
