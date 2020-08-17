@@ -8,22 +8,22 @@
 typedef struct pool_login_args {
   // username: a properly formatted pool username.
   const char* username;
-  // rigid: a properly formatted rig id, or null if no rigid is specified by the user.
+  // rigid: a properly formatted rig id, or empty string if no rigid is specified by the user.
   const char* rigid;
-  // wallet: a properly formatted wallet address; can be null for username-only logins. If wallet is
-  //         null, pool server will return a warning if the username has not previously been
+  // wallet: a properly formatted wallet address; can be empty for username-only logins. If wallet is
+  //         empty string, pool server will return a warning if the username has not previously been
   //         associated with a wallet.
   const char* wallet;
   // agent: a string that informs the pool server of the miner client details, e.g. name and version
   //        of the software using this API.
   const char* agent;
-  // config: advanced options config string, can be null.
+  // config: advanced options config string, can be empty string
   const char* config;
 } pool_login_args;
  
  
 typedef struct pool_login_response {
-  // code = 1: login successful; if message is non-null, it's a warning/info message from pool
+  // code = 1: login successful; if message is non-empty, it's a warning/info message from pool
   //           server that should be shown to the user
   //
   // code < 0: login unsuccessful; couldn't reach pool server. Caller should retry later. message
@@ -40,18 +40,13 @@ typedef struct pool_login_response {
 pool_login_response pool_login(const pool_login_args *args) {
   struct PoolLogin_return r;
   r = PoolLogin((char*)args->username,
-				args->rigid == NULL ? "" : (char*)args->rigid,
-				args->wallet == NULL ? "" : (char*)args->wallet,
+				(char*)args->rigid,
+				(char*)args->wallet,
 				(char*)args->agent,
-				args->config == NULL ? "" : (char*)args->config);
+				(char*)args->config);
   pool_login_response response;
   response.code = (int)r.r0;
-  if (strlen(r.r1) > 0) {
-	response.message = r.r1;
-  } else {
-	free((void*)r.r1);
-	response.message = NULL;
-  }
+  response.message = r.r1;
   return response;
 }
 
@@ -87,12 +82,7 @@ init_miner_response init_miner(const init_miner_args *args) {
     InitMiner((GoInt)args->threads, (GoInt)args->exclude_hour_start, (GoInt)args->exclude_hour_end);
   init_miner_response response;
   response.code = (int)r.r0;
-  if (strlen(r.r1) > 0) {
-	response.message = r.r1;
-  } else {
-	free((void*)r.r1);
-	response.message = NULL;
-  }
+  response.message = r.r1;
   return response;
 }
 
@@ -132,8 +122,8 @@ typedef struct get_miner_state_response {
 
   // username of the miner whose pool stats appear below. Small chance this username may not match
   // the currently logged in user if a new login recently took place, so always check the username
-  // matches before displaying the stats below. This value may be null (no user currently logged in)
-  // in which case stats below should be ignored.
+  // matches before displaying the stats below. This value may be empty string (no user currently
+  // logged in) in which case stats below should be ignored.
   //
   // NOTE: you must free() username
   const char* username; 
@@ -164,15 +154,8 @@ get_miner_state_response get_miner_state() {
   response.mining_activity = (int)r.r0;
   response.threads = (int)r.r1;
   response.recent_hashrate = (float)r.r2;
-  if (strlen(r.r3) > 0) {
-	response.username = r.r3;
-	response.time_to_reward = r.r9;
-  } else {
-	response.username = NULL;
-	response.time_to_reward = NULL;
-	free((void*)r.r3);
-	free((void*)r.r9);
-  }
+  response.username = r.r3;
+  response.time_to_reward = r.r9;
   response.seconds_old = (int)r.r4;
   response.lifetime_hashes = (long)r.r5;
   response.paid = (float)r.r6;

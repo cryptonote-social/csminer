@@ -152,12 +152,10 @@ func printStats() {
 	msg := getActivityMessage(s.MiningActivity)
 	crylog.Info("")
 	crylog.Info("===============================================================================")
-	crylog.Info("Mining", msg)
-	crylog.Info("===============================================================================")
 	if s.RecentHashrate < 0 {
-		crylog.Info("Recent Hashrate              : --calculating--")
+		crylog.Info("Current Hashrate             : --calculating--")
 	} else {
-		crylog.Info("Recent Hashrate              :", strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
+		crylog.Info("Current Hashrate              :", strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
 	}
 	crylog.Info("Hashrate since inception     :", strconv.FormatFloat(s.Hashrate, 'f', 2, 64))
 	crylog.Info("Threads                      :", s.Threads)
@@ -170,11 +168,15 @@ func printStats() {
 		crylog.Info("Last pool stats refresh      :", s.SecondsOld, "seconds ago")
 		crylog.Info("  Lifetime hashes            :", prettyInt(s.LifetimeHashes))
 		crylog.Info("  Paid                       :", strconv.FormatFloat(s.Paid, 'f', 12, 64), "$XMR")
-		crylog.Info("  Owed                       :", strconv.FormatFloat(s.Owed, 'f', 12, 64), "$XMR")
+		if s.Owed > 0.0 {
+			crylog.Info("  Owed                       :", strconv.FormatFloat(s.Owed, 'f', 12, 64), "$XMR")
+		}
 		crylog.Info("  Time to next reward (est.) :", s.TimeToReward)
 		crylog.Info("    Accumulated (est.)       :", strconv.FormatFloat(s.Accumulated, 'f', 12, 64), "$XMR")
 		crylog.Info("===============================================================================")
 	}
+	crylog.Info("Mining", msg)
+	crylog.Info("===============================================================================")
 	crylog.Info("")
 }
 

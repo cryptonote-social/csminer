@@ -154,14 +154,17 @@ func getMiningActivityState() int {
 // Called by the user to log into the pool for the first time, or re-log into the pool with new
 // credentials.
 func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
+	crylog.Info("Pool login called")
 	doneChanMutex.Lock()
 	defer doneChanMutex.Unlock()
 	if miningLoopDoneChan != nil {
+		crylog.Info("Pool login: shutting down previous mining loop")
 		// trigger close of previous mining loop
 		pokeJobDispatcher(EXIT_LOOP_POKE)
 		// wait until previous mining loop completes
 		<-miningLoopDoneChan
 		miningLoopDoneChan = nil
+		crylog.Info("Pool login: Previous loop done")
 	}
 
 	configMutex.Lock()
@@ -181,6 +184,7 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	config := args.Config
 	rigid := args.RigID
 
+	crylog.Info("Pool login: Connecting to pool server")
 	err, code, message, jc := cl.Connect("cryptonote.social:5555", args.UseTLS, agent, loginName, config, rigid)
 	if err != nil {
 		if code != 0 {
@@ -216,6 +220,7 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	go stats.RefreshPoolStats(plArgs.Username)
 	miningLoopDoneChan = make(chan bool, 1)
 	go MiningLoop(jc)
+	crylog.Info("Successful login:", plArgs.Username)
 	return r
 }
 
@@ -462,6 +467,7 @@ func GetMiningState() *GetMiningStateResponse {
 		s.PoolUsername = ""
 		s.SecondsOld = -1.0
 	} else if plArgs.Username != s.PoolUsername {
+		// Pool stats do not (yet) reflect the currently logged in user, so tag them as invalid.
 		s.PoolUsername = plArgs.Username
 		s.SecondsOld = -1.0
 	}
