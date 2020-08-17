@@ -221,7 +221,7 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	r.Code = 1
 	go stats.RefreshPoolStats(plArgs.Username)
 	miningLoopDoneChan = make(chan bool, 1)
-	go MiningLoop(jc)
+	go MiningLoop(jc, miningLoopDoneChan)
 	crylog.Info("Successful login:", plArgs.Username)
 	return r
 }
@@ -317,8 +317,8 @@ func reconnectClient() <-chan *client.MultiClientJob {
 }
 
 // Called by PoolLogin after succesful login.
-func MiningLoop(jobChan <-chan *client.MultiClientJob) {
-	defer func() { miningLoopDoneChan <- true }()
+func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
+	defer func() { done <- true }()
 	crylog.Info("Mining loop started")
 
 	// Set up fresh stats ....
@@ -352,7 +352,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob) {
 				if newChan == nil {
 					crylog.Info("reconnect failed. sleeping for", sleepSec, "seconds before trying again")
 					time.Sleep(sleepSec)
-					sleepSec += time.Second
+					//sleepSec += time.Second TEMP TEST
 					continue
 				}
 				// Set up fresh stats for new connection
@@ -420,7 +420,7 @@ func stopWorkers() {
 }
 
 func handlePoke(poke int) {
-	//crylog.Info("Handling poke:", poke)
+	crylog.Info("Handling poke:", poke)
 	switch poke {
 	case INCREASE_THREADS_POKE:
 		stopWorkers()
