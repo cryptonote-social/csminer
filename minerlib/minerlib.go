@@ -463,6 +463,8 @@ func GetMiningState() *GetMiningStateResponse {
 		isMining = true
 	}
 	s, _, _ := stats.GetSnapshot(isMining)
+	configMutex.Lock()
+	defer configMutex.Unlock()
 	if plArgs == nil {
 		s.PoolUsername = ""
 		s.SecondsOld = -1.0
@@ -471,8 +473,6 @@ func GetMiningState() *GetMiningStateResponse {
 		s.PoolUsername = plArgs.Username
 		s.SecondsOld = -1.0
 	}
-	configMutex.Lock()
-	defer configMutex.Unlock()
 	return &GetMiningStateResponse{
 		Snapshot:       *s,
 		MiningActivity: as,

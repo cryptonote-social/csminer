@@ -85,12 +85,16 @@ int main(int argc, char* argv[]) {
 
     printf("Increasing threads\n");
     increase_threads();
-    sleep(60);
-	ms_resp = get_miner_state();
-	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
-	printf("Threads active: %d\n", ms_resp.threads);
-	free((void*)ms_resp.username);
-	free((void*)ms_resp.time_to_reward);
+
+    printf("Entering get_miner_state polling loop, 60 polls with 1 second sleep inbetween\n");
+    for (int i = 0; i < 60; ++i) {
+        ms_resp = get_miner_state();
+        printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
+        printf("Threads active: %d\n", ms_resp.threads);
+        free((void*)ms_resp.username);
+        free((void*)ms_resp.time_to_reward);
+        sleep(1);
+    }
 
     printf("Trying to login with a new user (donate-getmonero-org).\n");
     pl_args.username = "donate-getmonero-org";
@@ -119,12 +123,15 @@ int main(int argc, char* argv[]) {
 
     printf("Decreasing threads\n");
     decrease_threads();
-    sleep(60);
-	ms_resp = get_miner_state();
-	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
-	printf("Threads active: %d\n", ms_resp.threads);
-	free((void*)ms_resp.username);
-	free((void*)ms_resp.time_to_reward);
+    printf("Entering get_miner_state polling loop, 60 polls with 1 second sleep inbetween\n");
+    for (int i = 0; i < 60; ++i) {
+        ms_resp = get_miner_state();
+        printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
+        printf("Threads active: %d\n", ms_resp.threads);
+        free((void*)ms_resp.username);
+        free((void*)ms_resp.time_to_reward);
+        sleep(1);
+    }
   }
   return 0;
 }
