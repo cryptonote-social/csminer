@@ -106,6 +106,9 @@ typedef struct get_miner_state_response {
   //    MINING_PAUSED_TIME_EXCLUDED = -6
   //     indicates miner is paused because we're in the user-excluded time period
   //
+  //    MINING_PAUSED_NO_LOGIN = -7
+  //     indicates miner is paused because we're in the user-excluded time period
+  //
   //	MINING_ACTIVE = 1
   //     indicates miner is actively mining
   //

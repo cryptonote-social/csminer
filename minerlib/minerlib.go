@@ -35,6 +35,10 @@ const (
 	// Indicates miner is paused because we're in the user-excluded time period
 	MINING_PAUSED_TIME_EXCLUDED = -6
 
+	// Indicates the most recent login failed so there is no connection to the pool
+	// server. Prompt the user to log in with valid log in parameters.
+	MINING_PAUSED_NO_LOGIN = -7
+
 	// Indicates miner is actively mining
 	MINING_ACTIVE = 1
 
@@ -124,6 +128,10 @@ type PoolLoginResponse struct {
 func getMiningActivityState() int {
 	configMutex.Lock()
 	defer configMutex.Unlock()
+
+	if plArgs == nil {
+		return MINING_PAUSED_NO_LOGIN
+	}
 
 	// User-override pause trumps all:
 	if miningOverride == OVERRIDE_PAUSE {
@@ -468,8 +476,10 @@ type GetMiningStateResponse struct {
 	Threads        int
 }
 
-func ForceRecentStatsUpdate() {
-	pokeJobDispatcher(UPDATE_STATS_POKE)
+// poke the job dispatcher to refresh recent stats. result may not be immediate but should happen
+// quickly.
+func RequestRecentStatsUpdate() {
+	go pokeJobDispatcher(UPDATE_STATS_POKE) // own gorouting so as not to block
 }
 
 func GetMiningState() *GetMiningStateResponse {
@@ -510,16 +520,16 @@ func updatePoolStats(isMining bool) {
 }
 
 func IncreaseThreads() {
-	pokeJobDispatcher(INCREASE_THREADS_POKE)
+	go pokeJobDispatcher(INCREASE_THREADS_POKE)
 }
 
 func DecreaseThreads() {
-	pokeJobDispatcher(DECREASE_THREADS_POKE)
+	go pokeJobDispatcher(DECREASE_THREADS_POKE)
 }
 
-// Poke the job dispatcher. Returns false if the client is not currently alive.
+// Poke the job dispatcher. Though it should be unlikely, this method may block if the channel is
+// full, so invoke it in a goroutine if you wish to never block.
 func pokeJobDispatcher(pokeMsg int) {
-	//crylog.Info("Poking job dispatcher:", pokeMsg)
 	pokeChannel <- pokeMsg
 }
 
@@ -623,7 +633,7 @@ func OverrideMiningActivityState(mine bool) {
 	}
 	crylog.Info("New mining override state:", newState)
 	miningOverride = newState
-	pokeJobDispatcher(STATE_CHANGE_POKE)
+	go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
 }
 
 func RemoveMiningActivityOverride() {
@@ -634,7 +644,7 @@ func RemoveMiningActivityOverride() {
 	}
 	crylog.Info("Removing mining override")
 	miningOverride = 0
-	pokeJobDispatcher(STATE_CHANGE_POKE)
+	go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
 }
 
 func ReportIdleScreenState(isIdle bool) {
@@ -645,7 +655,7 @@ func ReportIdleScreenState(isIdle bool) {
 	}
 	crylog.Info("Screen idle state changed to:", isIdle)
 	screenIdle = isIdle
-	pokeJobDispatcher(STATE_CHANGE_POKE)
+	go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
 }
 
 func ReportPowerState(battery bool) {
@@ -656,7 +666,7 @@ func ReportPowerState(battery bool) {
 	}
 	crylog.Info("Battery state changed to:", battery)
 	batteryPower = battery
-	pokeJobDispatcher(STATE_CHANGE_POKE)
+	go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
 }
 
 // configMutex should be locked before calling
