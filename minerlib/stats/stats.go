@@ -37,6 +37,8 @@ var (
 	lifetimeHashes          int64
 	paid, owed, accumulated float64
 	timeToReward            string
+
+	httpClient *http.Client
 )
 
 func Init() {
@@ -46,6 +48,10 @@ func Init() {
 	startTime = now
 	recentStatsResetTime = now
 	accurateTime = now
+
+	httpClient = &http.Client{
+		Timeout: 15 * time.Second,
+	}
 }
 
 // Call whenever we're at at a point where recent hashrate calculation would be accurate,
@@ -156,13 +162,10 @@ func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64, seconds
 }
 
 func RefreshPoolStats(username string) error {
-	c := &http.Client{
-		Timeout: 15 * time.Second,
-	}
 	uri := "https://cryptonote.social/json/WorkerStats"
 	sbody := "{\"Coin\": \"xmr\", \"Worker\": \"" + username + "\"}\n"
 	body := strings.NewReader(sbody)
-	resp, err := c.Post(uri, "", body)
+	resp, err := httpClient.Post(uri, "", body)
 	if err != nil {
 		return err
 	}
@@ -192,7 +195,7 @@ func RefreshPoolStats(username string) error {
 	uri = "https://cryptonote.social/json/PoolStats"
 	sbody = "{\"Coin\": \"xmr\"}\n"
 	body = strings.NewReader(sbody)
-	resp2, err := http.DefaultClient.Post(uri, "", body)
+	resp2, err := httpClient.Post(uri, "", body)
 	if err != nil {
 		return err
 	}
