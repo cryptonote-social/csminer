@@ -352,7 +352,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 				if newChan == nil {
 					crylog.Info("reconnect failed. sleeping for", sleepSec, "seconds before trying again")
 					time.Sleep(sleepSec)
-					//sleepSec += time.Second TEMP TEST
+					sleepSec += time.Second
 					continue
 				}
 				// Set up fresh stats for new connection
@@ -584,15 +584,16 @@ func goMine(job client.MultiClientJob, thread int) {
 		updatePoolStats(true)
 		crylog.Info("Share found by thread:", thread, "Target:", blockchain.HashDifficulty(hash))
 		fnonce := hex.EncodeToString(nonce)
-		// If the client is alive, submit the share in a separate thread so we can resume hashing
-		// immediately, otherwise wait until it's alive.
-		for {
-			if cl.IsAlive() {
-				break
-			}
-			time.Sleep(time.Second)
-		}
+		// submit in a separate thread so we can resume hashing immediately.
 		go func(fnonce, jobid string) {
+			// If the client isn't alive, then sleep for a bit and hope it wakes up
+			// before the share goes stale.
+			for {
+				if cl.IsAlive() {
+					break
+				}
+				time.Sleep(time.Second)
+			}
 			resp, err := cl.SubmitWork(fnonce, jobid)
 			if err != nil {
 				crylog.Warn("Submit work client failure:", jobid, err)
