@@ -28,9 +28,6 @@ var (
 	exclude = flag.String("exclude", "", "pause mining during these hours, e.g. -exclude=11-16 will pause mining between 11am and 4pm")
 	config  = flag.String("config", "", "advanced pool configuration options, e.g. start_diff=1000;donate=1.0")
 	wallet  = flag.String("wallet", "", "your wallet id. only specify this when establishing a new username, or specifying a 'secure' config change such as a change in donation amount")
-
-	// Deprecated:
-	startDiff = flag.Int("start_diff", 0, "a starting difficulty value for the pool")
 )
 
 func MultiMain(s ScreenStater, agent string) {
@@ -128,7 +125,6 @@ func MultiMain(s ScreenStater, agent string) {
 		Saver:          *saver,
 		ExcludeHrStart: hr1,
 		ExcludeHrEnd:   hr2,
-		StartDiff:      *startDiff,
 		UseTLS:         *tls,
 		AdvancedConfig: *config,
 	}

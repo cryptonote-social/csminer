@@ -40,7 +40,6 @@ type MinerConfig struct {
 	Agent                        string
 	Saver                        bool
 	ExcludeHrStart, ExcludeHrEnd int
-	StartDiff                    int // deprecated, use AdvancedConfig instead
 	UseTLS                       bool
 	AdvancedConfig               string
 }
@@ -155,7 +154,7 @@ func printStats() {
 	if s.RecentHashrate < 0 {
 		crylog.Info("Current Hashrate             : --calculating--")
 	} else {
-		crylog.Info("Current Hashrate              :", strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
+		crylog.Info("Current Hashrate             :", strconv.FormatFloat(s.RecentHashrate, 'f', 2, 64))
 	}
 	crylog.Info("Hashrate since inception     :", strconv.FormatFloat(s.Hashrate, 'f', 2, 64))
 	crylog.Info("Threads                      :", s.Threads)
