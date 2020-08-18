@@ -61,8 +61,10 @@ const (
 
 var (
 	// miner config
-	configMutex                      sync.Mutex
-	plArgs                           *PoolLoginArgs // nil if nobody is currently logged in
+	configMutex sync.Mutex
+	// plArgs (pool login args) is nil if nobody is currently logged in, which also implies
+	// dispatch loop isn't active.
+	plArgs                           *PoolLoginArgs
 	threads                          int
 	lastSeed                         []byte
 	excludeHourStart, excludeHourEnd int
@@ -337,10 +339,8 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 	var job *client.MultiClientJob
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
-		crylog.Info("selecting")
 		select {
 		case poke := <-pokeChannel:
-			crylog.Info("poke!", poke)
 			if poke == EXIT_LOOP_POKE {
 				crylog.Info("Stopping mining loop")
 				stopWorkers()
@@ -353,9 +353,9 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 			}
 
 		case job = <-jobChan:
-			crylog.Info("job!", job)
 			if job == nil {
 				crylog.Info("stratum client closed, reconnecting...")
+				cl.Close()
 				newChan := reconnectClient()
 				if newChan == nil {
 					crylog.Info("reconnect failed. sleeping for", sleepSec, "seconds before trying again")
@@ -373,7 +373,6 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 
 		case <-time.After(15 * time.Second):
-			crylog.Info("select timeout!")
 			break
 		}
 
@@ -392,7 +391,6 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 			stats.ResetRecent()
 		}
 
-		crylog.Info("Hi")
 		as := getMiningActivityState()
 		crylog.Info("Activity state:", as)
 		if as < 0 {
@@ -416,7 +414,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 		}
 	}
 
-	defer crylog.Info("Mining loop terminated")
+	crylog.Info("Mining loop terminated")
 }
 
 // Stop all active worker threads and wait for them to finish before returning. Should
@@ -428,7 +426,6 @@ func stopWorkers() {
 }
 
 func handlePoke(poke int) {
-	crylog.Info("Handling poke:", poke)
 	switch poke {
 	case INCREASE_THREADS_POKE:
 		stopWorkers()
@@ -479,6 +476,12 @@ type GetMiningStateResponse struct {
 // poke the job dispatcher to refresh recent stats. result may not be immediate but should happen
 // quickly.
 func RequestRecentStatsUpdate() {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	if plArgs == nil {
+		// dispatch loop inactive so there are no stats to update
+		return
+	}
 	go pokeJobDispatcher(UPDATE_STATS_POKE) // own gorouting so as not to block
 }
 
@@ -520,11 +523,37 @@ func updatePoolStats(isMining bool) {
 }
 
 func IncreaseThreads() {
-	go pokeJobDispatcher(INCREASE_THREADS_POKE)
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	if plArgs != nil {
+		go pokeJobDispatcher(INCREASE_THREADS_POKE)
+		return
+	}
+	// dispatch loop isn't active so just handle this here
+	t := rx.AddThread()
+	if t < 0 {
+		configMutex.Unlock()
+		crylog.Error("Failed to add another thread")
+		return
+	}
+	threads = t
 }
 
 func DecreaseThreads() {
-	go pokeJobDispatcher(DECREASE_THREADS_POKE)
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	if plArgs != nil {
+		go pokeJobDispatcher(DECREASE_THREADS_POKE)
+		return
+	}
+	// dispatch loop isn't active so just handle this here
+	t := rx.RemoveThread()
+	if t < 0 {
+		configMutex.Unlock()
+		crylog.Error("Failed to decrease threads")
+		return
+	}
+	threads = t
 }
 
 // Poke the job dispatcher. Though it should be unlikely, this method may block if the channel is
@@ -606,6 +635,7 @@ func goMine(job client.MultiClientJob, thread int) {
 			}
 			resp, err := cl.SubmitWork(fnonce, jobid)
 			if err != nil {
+				cl.Close()
 				crylog.Warn("Submit work client failure:", jobid, err)
 				return
 			}
@@ -633,7 +663,9 @@ func OverrideMiningActivityState(mine bool) {
 	}
 	crylog.Info("New mining override state:", newState)
 	miningOverride = newState
-	go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
+	if plArgs != nil {
+		go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
+	}
 }
 
 func RemoveMiningActivityOverride() {
@@ -644,7 +676,9 @@ func RemoveMiningActivityOverride() {
 	}
 	crylog.Info("Removing mining override")
 	miningOverride = 0
-	go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
+	if plArgs != nil {
+		go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
+	}
 }
 
 func ReportIdleScreenState(isIdle bool) {
@@ -655,7 +689,9 @@ func ReportIdleScreenState(isIdle bool) {
 	}
 	crylog.Info("Screen idle state changed to:", isIdle)
 	screenIdle = isIdle
-	go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
+	if plArgs != nil {
+		go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
+	}
 }
 
 func ReportPowerState(battery bool) {
@@ -666,7 +702,9 @@ func ReportPowerState(battery bool) {
 	}
 	crylog.Info("Battery state changed to:", battery)
 	batteryPower = battery
-	go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
+	if plArgs != nil {
+		go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks
+	}
 }
 
 // configMutex should be locked before calling
