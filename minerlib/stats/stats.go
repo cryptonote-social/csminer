@@ -2,6 +2,7 @@ package stats
 
 import (
 	//	"github.com/cryptonote-social/csminer/crylog"
+	"github.com/cryptonote-social/csminer/stratum/client"
 
 	"encoding/json"
 	"io/ioutil"
@@ -159,6 +160,42 @@ func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64, seconds
 		r.SecondsOld = int(time.Now().Sub(lastPoolUpdateTime).Seconds())
 	}
 	return r, time.Now().Sub(recentStatsResetTime).Seconds(), elapsedRecent
+}
+
+func RefreshPoolStats2(swr *client.SubmitWorkResult) {
+	diff := float64(swr.NetworkDifficulty)
+	hr := float64(swr.PPROPHashrate)
+	var ttreward string
+	if hr > 0.0 {
+		ttr := (diff*(1.0+swr.PoolMargin) - (swr.PPROPProgress * diff)) / hr / 3600.0 / 24.0
+		if ttr > 0.0 {
+			if ttr < 1.0 {
+				ttr *= 24.0
+				if ttr < 1.0 {
+					ttr *= 60.0
+					ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " min"
+				} else {
+					ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " hrs"
+				}
+			} else {
+				ttreward = strconv.FormatFloat(ttr, 'f', 2, 64) + " days"
+			}
+		} else if ttr < 0.0 {
+			ttreward = "overdue"
+		}
+	}
+
+	mutex.Lock()
+	lastPoolUpdateTime = time.Now()
+	lifetimeHashes = swr.LifetimeHashes
+	paid = swr.Paid
+	owed = swr.Owed
+	if swr.NextBlockReward > 0.0 && swr.Progress > 0.0 {
+		progress := swr.Progress / (1.0 + swr.PoolMargin)
+		accumulated = swr.NextBlockReward * progress
+	}
+	timeToReward = ttreward
+	mutex.Unlock()
 }
 
 func RefreshPoolStats(username string) error {

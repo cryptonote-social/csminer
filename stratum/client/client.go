@@ -56,6 +56,36 @@ type MultiClientJob struct {
 	ConnNonce         uint32 `json:"nonce"`
 }
 
+type SubmitWorkResult struct {
+	Status string `json:"status"`
+
+	Progress       float64 // progress of this user
+	LifetimeHashes int64   // hashes from this user over its lifetime
+	Paid           float64 // Total crypto paid to this user over its lifetime.
+	Owed           float64 // Crypto owed to this user but not paid out yet.
+
+	Donate float64 // Fraction of earnings donated to the pool by this user.
+
+	PPROPHashrate     int64   // hashrate of the pprop collective
+	PPROPProgress     float64 // raw progress of the pprop collective
+	NextBlockReward   float64 // reward of the next banked block
+	NetworkDifficulty int64   // difficulty, possibly smoothed over the last several blocks
+
+	// TODO: These pool config values rarely change, so we should fetch these in some other way
+	// instead of returning them from each SubmitWork call.
+	PoolMargin float64
+	PoolFee    float64
+}
+
+type SubmitWorkResponse struct {
+	ID      uint64          `json:"id"`
+	Jsonrpc string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Job     *MultiClientJob `json:"params"`
+	Result  *SubmitWorkResult
+	Error   map[string]interface{} `json:"error"`
+}
+
 type Client struct {
 	address         string
 	conn            net.Conn
@@ -266,15 +296,6 @@ func (cl *Client) Close() {
 	}
 	cl.alive = false
 	cl.conn.Close()
-}
-
-type SubmitWorkResponse struct {
-	ID      uint64                 `json:"id"`
-	Jsonrpc string                 `json:"jsonrpc"`
-	Method  string                 `json:"method"`
-	Job     *MultiClientJob        `json:"params"`
-	Result  map[string]interface{} `json:"result"`
-	Error   map[string]interface{} `json:"error"`
 }
 
 // DispatchJobs will forward incoming jobs to the JobChannel until error is received or the

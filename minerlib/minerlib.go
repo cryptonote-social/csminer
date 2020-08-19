@@ -372,7 +372,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 			}
 			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 
-		case <-time.After(15 * time.Second):
+		case <-time.After(60 * time.Second):
 			break
 		}
 
@@ -620,7 +620,6 @@ func goMine(job client.MultiClientJob, thread int) {
 			break
 		}
 		stats.TallyHashes(res)
-		updatePoolStats(true)
 		crylog.Info("Share found by thread:", thread, "Target:", blockchain.HashDifficulty(hash))
 		fnonce := hex.EncodeToString(nonce)
 		// submit in a separate thread so we can resume hashing immediately.
@@ -645,6 +644,15 @@ func goMine(job client.MultiClientJob, thread int) {
 				return
 			}
 			stats.ShareAccepted(diffTarget)
+			swr := resp.Result
+			if swr != nil {
+				crylog.Info("Got submit work result:", swr)
+				if swr.PoolMargin > 0.0 {
+					stats.RefreshPoolStats2(swr)
+				} else {
+					updatePoolStats(true)
+				}
+			}
 		}(fnonce, job.JobID)
 	}
 }
