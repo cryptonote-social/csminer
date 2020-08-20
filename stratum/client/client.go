@@ -183,8 +183,6 @@ func (cl *Client) Connect(
 	}{}
 	cl.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	rdr := bufio.NewReaderSize(cl.conn, MAX_REQUEST_SIZE)
-	//d, _, _ := rdr.ReadLine()
-	//crylog.Info("login response:", string(d))
 	err = readJSON(response, rdr)
 	if err != nil {
 		crylog.Error("readJSON failed for client:", err)
@@ -195,7 +193,6 @@ func (cl *Client) Connect(
 		return errors.New("stratum server error"), response.Error.Code, response.Error.Message, nil
 	}
 
-	crylog.Info("Connect successful")
 	cl.responseChannel = make(chan *SubmitWorkResponse)
 	cl.alive = true
 	jc := make(chan *MultiClientJob)
@@ -290,7 +287,6 @@ func (cl *Client) Close() {
 	cl.mutex.Lock()
 	defer cl.mutex.Unlock()
 	if !cl.alive {
-		crylog.Warn("tried to close dead client")
 		return
 	}
 	cl.alive = false
@@ -304,7 +300,6 @@ func dispatchJobs(conn net.Conn, jobChan chan<- *MultiClientJob, firstJob *Multi
 		close(jobChan)
 		close(responseChan)
 	}()
-	crylog.Info("starting dispatch loop")
 	jobChan <- firstJob
 	reader := bufio.NewReaderSize(conn, MAX_REQUEST_SIZE)
 	for {
@@ -329,7 +324,6 @@ func dispatchJobs(conn net.Conn, jobChan chan<- *MultiClientJob, firstJob *Multi
 		}
 		jobChan <- response.Job
 	}
-	crylog.Info("dispatch loop done")
 }
 
 func readJSON(response interface{}, reader *bufio.Reader) error {

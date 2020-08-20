@@ -197,7 +197,6 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	config := args.Config
 	rigid := args.RigID
 
-	crylog.Info("Pool login: Connecting to pool server")
 	err, code, message, jc := cl.Connect("cryptonote.social:5555", args.UseTLS, agent, loginName, config, rigid)
 	if err != nil {
 		if code != 0 {

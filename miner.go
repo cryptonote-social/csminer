@@ -56,7 +56,8 @@ func Mine(c *MinerConfig) error {
 	}
 	if imResp.Code == 2 {
 		crylog.Warn("")
-		crylog.Warn("WARNING: Could not allocate hugepages. Mining might be slow. A reboot might help.")
+		crylog.Warn("WARNING: Could not allocate hugepages. This may reduce hashrate.")
+		crylog.Warn("         Rebooting your machine might fix this.")
 		crylog.Warn("")
 	}
 
