@@ -46,7 +46,7 @@ type MinerConfig struct {
 
 func Mine(c *MinerConfig) error {
 	imResp := minerlib.InitMiner(&minerlib.InitMinerArgs{
-		Threads:          1,
+		Threads:          c.Threads,
 		ExcludeHourStart: c.ExcludeHrStart,
 		ExcludeHourEnd:   c.ExcludeHrEnd,
 	})
@@ -99,6 +99,7 @@ func Mine(c *MinerConfig) error {
 	if c.Saver {
 		ch, err := c.ScreenStater.GetScreenStateChannel()
 		if err != nil {
+			minerlib.ReportIdleScreenState(true)
 			crylog.Error("failed to get screen state monitor, screen state will be ignored")
 		} else {
 			// We assume the screen is active when the miner is started. This may
@@ -109,8 +110,9 @@ func Mine(c *MinerConfig) error {
 		minerlib.ReportIdleScreenState(true)
 	}
 
-	printKeyboardCommands()
+	go printStatsPeriodically()
 
+	printKeyboardCommands()
 	scanner := bufio.NewScanner(os.Stdin)
 	var manualMinerActivate bool
 	for scanner.Scan() {
@@ -123,7 +125,7 @@ func Mine(c *MinerConfig) error {
 			crylog.Info("Decreasing thread count.")
 			minerlib.DecreaseThreads()
 		case "h", "s", "p":
-			printStats()
+			printStats(false)
 		case "q", "quit", "exit":
 			crylog.Info("quitting due to keyboard command")
 			return nil
@@ -146,11 +148,14 @@ func Mine(c *MinerConfig) error {
 	return errors.New("didn't expect keyboard scanning to terminate")
 }
 
-func printStats() {
+func printStats(ifActive bool) {
 	s := minerlib.GetMiningState()
 	msg := getActivityMessage(s.MiningActivity)
+	if ifActive && s.MiningActivity < 0 {
+		return
+	}
 	crylog.Info("")
-	crylog.Info("===============================================================================")
+	crylog.Info("===========================================================")
 	if s.RecentHashrate < 0 {
 		crylog.Info("Current Hashrate             : --calculating--")
 	} else {
@@ -158,34 +163,34 @@ func printStats() {
 	}
 	crylog.Info("Hashrate since inception     :", strconv.FormatFloat(s.Hashrate, 'f', 2, 64))
 	crylog.Info("Threads                      :", s.Threads)
-	crylog.Info("===============================================================================")
 	crylog.Info("Shares    [accepted:rejected]:", s.SharesAccepted, ":", s.SharesRejected)
 	crylog.Info("Hashes          [client:pool]:", s.ClientSideHashes, ":", s.PoolSideHashes)
-	crylog.Info("===============================================================================")
+	crylog.Info("===========================================================")
 	if s.SecondsOld >= 0.0 {
-		crylog.Info("Pool username                :", s.PoolUsername)
-		crylog.Info("Last pool stats refresh      :", s.SecondsOld, "seconds ago")
-		crylog.Info("  Lifetime hashes            :", prettyInt(s.LifetimeHashes))
-		crylog.Info("  Paid                       :", strconv.FormatFloat(s.Paid, 'f', 12, 64), "$XMR")
+		crylog.Info("Pool username              :", s.PoolUsername)
+		crylog.Info("Lifetime hashes            :", prettyInt(s.LifetimeHashes))
+		crylog.Info("Paid                       :", strconv.FormatFloat(s.Paid, 'f', 12, 64), "$XMR")
 		if s.Owed > 0.0 {
-			crylog.Info("  Owed                       :", strconv.FormatFloat(s.Owed, 'f', 12, 64), "$XMR")
+			crylog.Info("Owed                       :", strconv.FormatFloat(s.Owed, 'f', 12, 64), "$XMR")
 		}
-		crylog.Info("  Time to next reward (est.) :", s.TimeToReward)
-		crylog.Info("    Accumulated (est.)       :", strconv.FormatFloat(s.Accumulated, 'f', 12, 64), "$XMR")
-		crylog.Info("===============================================================================")
+		crylog.Info("Time to next reward (est.) :", s.TimeToReward)
+		crylog.Info("  Accumulated (est.)       :", strconv.FormatFloat(s.Accumulated, 'f', 12, 64), "$XMR")
+		crylog.Info("===========================================================")
 	}
 	crylog.Info("Mining", msg)
-	crylog.Info("===============================================================================")
+	crylog.Info("===========================================================")
 	crylog.Info("")
 }
 
 func printKeyboardCommands() {
+	crylog.Info("")
 	crylog.Info("Keyboard commands:")
 	crylog.Info("   s: print miner stats")
-	//crylog.Info("   p: print pool-side user stats")
-	crylog.Info("   i/d: increase/decrease number of threads by 1")
+	crylog.Info("   i: increase number of threads by 1")
+	crylog.Info("   d: decrease number of threads by 1")
 	crylog.Info("   q: quit")
 	crylog.Info("   <enter>: override a paused miner")
+	crylog.Info("")
 }
 
 func prettyInt(i int64) string {
@@ -204,6 +209,13 @@ func prettyInt(i int64) string {
 		out[i], out[j] = out[j], out[i]
 	}
 	return string(out)
+}
+
+func printStatsPeriodically() {
+	for {
+		<-time.After(30 * time.Second)
+		printStats(true) // print full stats only if actively mining
+	}
 }
 
 func monitorScreenSaver(ch chan ScreenState) {
@@ -226,17 +238,17 @@ func getActivityMessage(activityState int) string {
 	case minerlib.MINING_PAUSED_NO_CONNECTION:
 		return "PAUSED: no connection."
 	case minerlib.MINING_PAUSED_SCREEN_ACTIVITY:
-		return "PAUSED: screen is active. Hit <enter> to override."
+		return "PAUSED: screen is active. <enter> to override."
 	case minerlib.MINING_PAUSED_BATTERY_POWER:
-		return "PAUSED: on battery power. Hit <enter> to override."
+		return "PAUSED: on battery power. <enter> to override."
 	case minerlib.MINING_PAUSED_USER_OVERRIDE:
-		return "PAUSED: keyboard override active. Hit <enter> to remove override."
+		return "PAUSED: keyboard override. <enter> to undo override."
 	case minerlib.MINING_PAUSED_TIME_EXCLUDED:
-		return "PAUSED: within time of day exclusion. Hit <enter> to override."
+		return "PAUSED: within time of day exclusion. <enter> to override."
 	case minerlib.MINING_ACTIVE:
 		return "ACTIVE"
 	case minerlib.MINING_ACTIVE_USER_OVERRIDE:
-		return "ACTIVE: keyboard override active. Hit <enter> to remove override."
+		return "ACTIVE: keyboard override. <enter> to undo override."
 	}
 	crylog.Fatal("Unknown activity state:", activityState)
 	if activityState > 0 {

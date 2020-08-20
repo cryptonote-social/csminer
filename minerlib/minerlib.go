@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"sync"
@@ -335,7 +336,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 	stopWorkers()
 	stats.ResetRecent()
 
-	wasJustMining := false
+	lastActivityState := -999
 	var job *client.MultiClientJob
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
@@ -370,9 +371,15 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 				jobChan = newChan
 				continue
 			}
-			crylog.Info("Current job:", job.JobID, "Difficulty:", blockchain.TargetToDifficulty(job.Target))
 
-		case <-time.After(60 * time.Second):
+			infoStr := fmt.Sprint("Current job: ", job.JobID, " Difficulty: ", blockchain.TargetToDifficulty(job.Target))
+			if getMiningActivityState() < 0 {
+				crylog.Info(infoStr, "Mining: PAUSED")
+			} else {
+				crylog.Info(infoStr, "Mining: ACTIVE")
+			}
+
+		case <-time.After(30 * time.Second):
 			break
 		}
 
@@ -392,19 +399,15 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 		}
 
 		as := getMiningActivityState()
-		crylog.Info("Activity state:", as)
-		if as < 0 {
-			if wasJustMining {
-				crylog.Info("Mining is now paused:", as)
-				wasJustMining = false
+		if as != lastActivityState {
+			crylog.Info("New activity state:", getActivityMessage(as))
+			if (as < 0 && lastActivityState > 0) || (as > 0 && lastActivityState < 0) {
 				stats.ResetRecent()
 			}
-			continue
+			lastActivityState = as
 		}
-		if !wasJustMining {
-			crylog.Info("Mining is now active:", as)
-			wasJustMining = true
-			stats.ResetRecent()
+		if as < 0 {
+			continue
 		}
 
 		atomic.StoreUint32(&stopper, 0)
@@ -646,7 +649,6 @@ func goMine(job client.MultiClientJob, thread int) {
 			stats.ShareAccepted(diffTarget)
 			swr := resp.Result
 			if swr != nil {
-				crylog.Info("Got submit work result:", swr)
 				if swr.PoolMargin > 0.0 {
 					stats.RefreshPoolStats2(swr)
 				} else {
@@ -724,4 +726,29 @@ func timeExcluded() bool {
 		return currHr >= startHr && currHr < endHr
 	}
 	return currHr < startHr && currHr >= endHr
+}
+
+func getActivityMessage(activityState int) string {
+	switch activityState {
+	case MINING_PAUSED_NO_CONNECTION:
+		return "PAUSED: no connection."
+	case MINING_PAUSED_SCREEN_ACTIVITY:
+		return "PAUSED: screen is active."
+	case MINING_PAUSED_BATTERY_POWER:
+		return "PAUSED: on battery power."
+	case MINING_PAUSED_USER_OVERRIDE:
+		return "PAUSED: user override."
+	case MINING_PAUSED_TIME_EXCLUDED:
+		return "PAUSED: within time of day exclusion."
+	case MINING_ACTIVE:
+		return "ACTIVE"
+	case MINING_ACTIVE_USER_OVERRIDE:
+		return "ACTIVE: user override."
+	}
+	crylog.Error("Unknown activity state:", activityState)
+	if activityState > 0 {
+		return "ACTIVE: unknown reason."
+	} else {
+		return "PAUSED: unknown reason."
+	}
 }

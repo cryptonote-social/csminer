@@ -116,7 +116,6 @@ func (cl *Client) IsAlive() bool {
 func (cl *Client) Connect(
 	address string, useTLS bool, agent string,
 	uname, pw, rigid string) (err error, code int, message string, jobChan <-chan *MultiClientJob) {
-	crylog.Info("in connect")
 	cl.Close() // just in case caller forgot to call close before trying a new connection
 	cl.mutex.Lock()
 	defer cl.mutex.Unlock()
