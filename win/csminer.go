@@ -5,8 +5,8 @@ package main
 // main() for the Windows version of csminer with support for Windows locks screen monitoring.
 
 import (
-	"time"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/brunoqc/go-windows-session-notifications"
@@ -55,7 +55,7 @@ func (ss *WinScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 					}
 				}
 				close(m.ChanOk)
-			case <-time.After(10*time.Second):
+			case <-time.After(10 * time.Second):
 				if currentlyLocked {
 					continue
 				}
@@ -85,18 +85,20 @@ func (ss *WinScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 }
 
 func main() {
-	ss := WinScreenStater{ lockedOnStartup: false }
+	ss := WinScreenStater{lockedOnStartup: false}
 	csminer.MultiMain(&ss, "csminer "+csminer.VERSION_STRING+" (win)")
 }
 
 var libuser32 *windows.LazyDLL
+var libkernel32 *windows.LazyDLL
 
 func init() {
 	libuser32 = windows.NewLazySystemDLL("user32.dll")
+	libkernel32 = windows.NewLazySystemDLL("kernel32.dll")
 }
 
 func isScreenSaverRunning() (bool, error) {
-	systemParametersInfo := libuser32.NewProc("SystemParametersInfoW")	
+	systemParametersInfo := libuser32.NewProc("SystemParametersInfoW")
 
 	var uiAction, uiParam uint32
 	uiAction = 0x0072 //SPI_GETSCREENSAVERRUNNING
@@ -109,4 +111,25 @@ func isScreenSaverRunning() (bool, error) {
 		return false, err
 	}
 	return retVal, nil
+}
+
+type systemPowerStatus struct {
+	aclineStatus       uint8
+	batteryFlag        uint8
+	batteryLifePercent uint8
+	systemStatusFlag   uint8
+	batteryLifeTime    uint32
+	batterFullLifeTime uint32
+}
+
+func isBatteryPower() (bool, error) {
+	getSystemPowerStatus := libuser32.NewProc("SystemParametersInfoW")
+
+	var s systemPowerStatus
+	res, _, err := syscall.Syscall(getSystemPowerStatus.Addr(), 1, uintptr(unsafe.Pointer(&s)), 0, 0)
+	if res == 0 {
+		return false, err
+	}
+	crylog.Info("systemPowerStatus: ", s)
+	return false, nil
 }
