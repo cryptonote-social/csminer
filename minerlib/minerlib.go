@@ -329,7 +329,6 @@ func reconnectClient() <-chan *client.MultiClientJob {
 // Called by PoolLogin after succesful login.
 func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 	defer func() { done <- true }()
-	crylog.Info("Mining loop started")
 
 	// Set up fresh stats ....
 	stopWorkers()
@@ -371,11 +370,11 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 				continue
 			}
 
-			infoStr := fmt.Sprint("Current job: ", job.JobID, " Difficulty: ", blockchain.TargetToDifficulty(job.Target))
+			infoStr := fmt.Sprint("Current job: ", job.JobID, "  Difficulty: ", blockchain.TargetToDifficulty(job.Target))
 			if getMiningActivityState() < 0 {
-				crylog.Info(infoStr, "Mining: PAUSED")
+				crylog.Info(infoStr, " Mining: PAUSED")
 			} else {
-				crylog.Info(infoStr, "Mining: ACTIVE")
+				crylog.Info(infoStr, " Mining: ACTIVE")
 			}
 
 		case <-time.After(30 * time.Second):
@@ -415,8 +414,6 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 			go goMine(*job, i /*thread*/)
 		}
 	}
-
-	crylog.Info("Mining loop terminated")
 }
 
 // Stop all active worker threads and wait for them to finish before returning. Should
@@ -651,6 +648,7 @@ func goMine(job client.MultiClientJob, thread int) {
 				if swr.PoolMargin > 0.0 {
 					stats.RefreshPoolStats2(swr)
 				} else {
+					crylog.Warn("Didn't get pool stats in response:", resp.Result)
 					updatePoolStats(true)
 				}
 			}
@@ -670,7 +668,7 @@ func OverrideMiningActivityState(mine bool) {
 	if miningOverride == newState {
 		return
 	}
-	crylog.Info("New mining override state:", newState)
+	crylog.Info("Overriding mining state")
 	miningOverride = newState
 	if plArgs != nil {
 		go pokeJobDispatcher(STATE_CHANGE_POKE) // call in own goroutine in case it blocks

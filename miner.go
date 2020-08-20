@@ -136,10 +136,8 @@ func Mine(c *MinerConfig) error {
 		if len(b) == 0 {
 			if !manualMinerActivate {
 				manualMinerActivate = true
-				crylog.Info("Overriding mining state to ACTIVE")
 				minerlib.OverrideMiningActivityState(true)
 			} else {
-				crylog.Info("Removing mining override")
 				manualMinerActivate = false
 				minerlib.RemoveMiningActivityOverride()
 			}
@@ -213,6 +211,15 @@ func prettyInt(i int64) string {
 }
 
 func printStatsPeriodically() {
+	// Wait for pool stats before the first printout
+	for {
+		time.Sleep(time.Second)
+		s := minerlib.GetMiningState()
+		if s.SecondsOld >= 0 {
+			break
+		}
+	}
+	printStats(false)
 	for {
 		<-time.After(30 * time.Second)
 		printStats(true) // print full stats only if actively mining
