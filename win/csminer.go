@@ -21,7 +21,7 @@ type WinMachineStater struct {
 
 // We assume the screen is active when the miner is started. This may
 // not hold if someone is running the miner from an auto-start script?
-func (ss *WinScreenStater) GetMachineStateChannel(saver bool) (chan csminer.MachineState, error) {
+func (ss *WinMachineStater) GetMachineStateChannel(saver bool) (chan csminer.MachineState, error) {
 	ret := make(chan csminer.MachineState)
 
 	chanClose := make(chan int)
