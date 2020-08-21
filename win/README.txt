@@ -4,8 +4,9 @@ SYNOPSIS
 
 csminer from https://cryptonote.social is an easy-to-use CPU miner for Monero intended to provide
 "set it and forget it" mining for your existing laptop and desktop machines. By default, csminer
-mines with a single thread, and only when the screen is locked or the screensaver is running. It
-can be configured to always mine or mine with more threads using the options described below.
+mines with a single thread, and only when the screen is locked or the screensaver is running. On a
+laptop, csminer will mine only when on AC power to avoid draining the battery. It can be
+configured to always mine or mine with more threads using the options described below.
 
 
 USAGE

@@ -1,11 +1,9 @@
 del csminer.exe
 del csminer_res.o
-del ..\rx\cpp\rxlib.cpp.o
-del ..\rx\cpp\rxlib.o
-cd ..\rx\cpp
-call make.bat
-cd ..\..\win
 windres csminer.rc csminer_res.o
-ld -relocatable csminer_res.o ..\rx\cpp\rxlib.cpp.o -o ..\rx\cpp\rxlib.o
-move ..\rx\cpp\rxlib.o ..\rx\cpp\rxlib.cpp.o
-go build -x -ldflags="-s -w" csminer.go
+cd ..\..\rxlib
+call make.bat
+cd ..\csminer\win
+ld -relocatable csminer_res.o ..\..\rxlib\rxlib.cpp.o -o ..\..\rxlib\rxlib.o
+move ..\..\rxlib\rxlib.o ..\..\rxlib\rxlib.cpp.o
+go build -a -ldflags="-s -w" csminer.go

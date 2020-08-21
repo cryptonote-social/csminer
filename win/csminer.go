@@ -31,6 +31,7 @@ func (ss *WinScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 		// TODO: Also monitor for ac vs battery power state
 		currentlyLocked := false
 		isIdle := false
+		batteryPower := false
 		for {
 			select {
 			case m := <-chanMessages:
@@ -56,6 +57,22 @@ func (ss *WinScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 				}
 				close(m.ChanOk)
 			case <-time.After(10 * time.Second):
+				b, err := isBatteryPower()
+				if err  != nil {
+					crylog.Error("failed to get battery power state:", err)
+				} else {
+					if b != batteryPower {
+						if b {
+							crylog.Info("Detected battery power")
+							batteryPower = true
+							ret <- csminer.ScreenState(csminer.BATTERY_POWER)
+						} else {
+							crylog.Info("Detected AC power")
+							batteryPower = false
+							ret <- csminer.ScreenState(csminer.AC_POWER)
+						}
+					}
+				}
 				if currentlyLocked {
 					continue
 				}
@@ -123,13 +140,15 @@ type systemPowerStatus struct {
 }
 
 func isBatteryPower() (bool, error) {
-	getSystemPowerStatus := libuser32.NewProc("SystemParametersInfoW")
+	getSystemPowerStatus := libkernel32.NewProc("GetSystemPowerStatus")
 
 	var s systemPowerStatus
 	res, _, err := syscall.Syscall(getSystemPowerStatus.Addr(), 1, uintptr(unsafe.Pointer(&s)), 0, 0)
 	if res == 0 {
 		return false, err
 	}
-	crylog.Info("systemPowerStatus: ", s)
+	if s.aclineStatus == 0 {
+		return true, nil
+	}
 	return false, nil
 }
