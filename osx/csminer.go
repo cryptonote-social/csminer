@@ -20,7 +20,7 @@ type OSXMachineStater struct {
 // The OSX implementation of the screen & batter state notification channel is based on polling the
 // state every 10 seconds. It would be better to figure out how to get notified of state changes
 // when they happen.
-func (s OSXMachineStater) GetMachineStateChannel(saver bool) (chan csminer.ScreenState, error) {
+func (s OSXMachineStater) GetMachineStateChannel(saver bool) (chan csminer.MachineState, error) {
 	ret := make(chan csminer.MachineState)
 
 	go func() {
