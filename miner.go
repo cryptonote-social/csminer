@@ -17,23 +17,23 @@ import (
 var ()
 
 const (
-	// Valid screen states
+	// Valid machine state changes
 	SCREEN_IDLE   = 0
 	SCREEN_ACTIVE = 1
 	BATTERY_POWER = 2
 	AC_POWER      = 3
 )
 
-type ScreenState int
+type MachineState int
 
-type ScreenStater interface {
-	// Returns a channel that produces true when state changes from screen off to screen on,
-	// and false when it changes from on to off.
-	GetScreenStateChannel() (chan ScreenState, error)
+type MachineStater interface {
+	// Returns a channel that produces events when screen state & power state of the machine
+	// changes.
+	GetMachineStateChannel(saver bool) (chan MachineState, error)
 }
 
 type MinerConfig struct {
-	ScreenStater                 ScreenStater
+	MachineStater                MachineStater
 	Threads                      int
 	Username, RigID              string
 	Wallet                       string
@@ -97,18 +97,17 @@ func Mine(c *MinerConfig) error {
 		return errors.New("pool refused login")
 	}
 
-	if c.Saver {
-		ch, err := c.ScreenStater.GetScreenStateChannel()
-		if err != nil {
-			minerlib.ReportIdleScreenState(true)
-			crylog.Error("failed to get screen state monitor, screen state will be ignored")
-		} else {
-			// We assume the screen is active when the miner is started. This may
-			// not hold if someone is running the miner from an auto-start script?
-			go monitorScreenSaver(ch)
-		}
-	} else {
+	// We assume the screen is active when the miner is started. This may
+	// not hold if someone is running the miner from an auto-start script?
+	if !c.Saver {
 		minerlib.ReportIdleScreenState(true)
+	}
+	ch, err := c.MachineStater.GetMachineStateChannel(c.Saver)
+	if err != nil {
+		minerlib.ReportIdleScreenState(true)
+		crylog.Error("failed to machine state monitor, screen & battery state will be ignored")
+	} else {
+		go monitorMachineState(ch)
 	}
 
 	go printStatsPeriodically()
@@ -226,7 +225,7 @@ func printStatsPeriodically() {
 	}
 }
 
-func monitorScreenSaver(ch chan ScreenState) {
+func monitorMachineState(ch chan MachineState) {
 	for state := range ch {
 		switch state {
 		case SCREEN_IDLE:

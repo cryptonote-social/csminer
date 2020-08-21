@@ -30,7 +30,7 @@ var (
 	wallet  = flag.String("wallet", "", "your wallet id. only specify this when establishing a new username, or specifying a 'secure' config change such as a change in donation amount")
 )
 
-func MultiMain(s ScreenStater, agent string) {
+func MultiMain(s MachineStater, agent string) {
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "==== %s %s ====\n", APPLICATION_NAME, VERSION_STRING)
 		fmt.Fprint(flag.CommandLine.Output(),
@@ -116,7 +116,7 @@ func MultiMain(s ScreenStater, agent string) {
 	}
 
 	config := MinerConfig{
-		ScreenStater:   s,
+		MachineStater:  s,
 		Threads:        *t,
 		Username:       *uname,
 		RigID:          *rigid,

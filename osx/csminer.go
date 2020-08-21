@@ -3,7 +3,7 @@
 
 package main
 
-// main() for the osx version of csminer with OSX lock screen state polling.
+// main() for the osx version of csminer with OSX lock screen & battery state polling.
 
 import (
 	"context"
@@ -14,31 +14,33 @@ import (
 	"time"
 )
 
-type OSXScreenStater struct {
+type OSXMachineStater struct {
 }
 
-// The OSX implementation of the screen state notification channel is based on polling
-// the state every 10 seconds. It would be better to figure out how to get notified
-// of state changes when they happen.
-func (s OSXScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, error) {
-	ret := make(chan csminer.ScreenState)
+// The OSX implementation of the screen & batter state notification channel is based on polling the
+// state every 10 seconds. It would be better to figure out how to get notified of state changes
+// when they happen.
+func (s OSXMachineStater) GetMachineStateChannel(saver bool) (chan csminer.ScreenState, error) {
+	ret := make(chan csminer.MachineState)
 
 	go func() {
 		screenActive := true
 		batteryPower := false
 		for {
 			time.Sleep(time.Second * 5)
-			screenActiveNow, err := getScreenActiveState()
-			if err != nil {
-				crylog.Error("getScreenActiveState failed:", err)
-				continue
-			}
-			if screenActiveNow != screenActive {
-				screenActive = screenActiveNow
-				if screenActive {
-					ret <- csminer.ScreenState(csminer.SCREEN_ACTIVE)
-				} else {
-					ret <- csminer.ScreenState(csminer.SCREEN_IDLE)
+			if saver {
+				screenActiveNow, err := getScreenActiveState()
+				if err != nil {
+					crylog.Error("getScreenActiveState failed:", err)
+					continue
+				}
+				if screenActiveNow != screenActive {
+					screenActive = screenActiveNow
+					if screenActive {
+						ret <- csminer.MachineState(csminer.SCREEN_ACTIVE)
+					} else {
+						ret <- csminer.MachineState(csminer.SCREEN_IDLE)
+					}
 				}
 			}
 			time.Sleep(time.Second * 5)
@@ -50,9 +52,9 @@ func (s OSXScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, erro
 			if batteryPower != batteryPowerNow {
 				batteryPower = batteryPowerNow
 				if batteryPower {
-					ret <- csminer.ScreenState(csminer.BATTERY_POWER)
+					ret <- csminer.MachineState(csminer.BATTERY_POWER)
 				} else {
-					ret <- csminer.ScreenState(csminer.AC_POWER)
+					ret <- csminer.MachineState(csminer.AC_POWER)
 				}
 			}
 		}
@@ -107,5 +109,5 @@ func getBatteryPowerState() (bool, error) {
 }
 
 func main() {
-	csminer.MultiMain(OSXScreenStater{}, "csminer "+csminer.VERSION_STRING+" (osx)")
+	csminer.MultiMain(OSXMachineStater{}, "csminer "+csminer.VERSION_STRING+" (osx)")
 }

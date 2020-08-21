@@ -2,7 +2,7 @@
 // the license found in the LICENSE file.
 package main
 
-// main() for the Windows version of csminer with support for Windows locks screen monitoring.
+// main() for the Windows version of csminer with support for Windows machine state monitoring.
 
 import (
 	"syscall"
@@ -15,17 +15,17 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-type WinScreenStater struct {
+type WinMachineStater struct {
 	lockedOnStartup bool
 }
 
 // We assume the screen is active when the miner is started. This may
 // not hold if someone is running the miner from an auto-start script?
-func (ss *WinScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, error) {
-	ret := make(chan csminer.ScreenState)
+func (ss *WinScreenStater) GetMachineStateChannel(saver bool) (chan csminer.MachineState, error) {
+	ret := make(chan csminer.MachineState)
 
-	chanMessages := make(chan session_notifications.Message, 100)
 	chanClose := make(chan int)
+	chanMessages := make(chan session_notifications.Message, 100)
 
 	go func() {
 		// TODO: Also monitor for ac vs battery power state
@@ -43,14 +43,14 @@ func (ss *WinScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 						currentlyLocked = true
 						if !isIdle {
 							isIdle = true
-							ret <- csminer.ScreenState(csminer.SCREEN_IDLE)
+							ret <- csminer.MachineState(csminer.SCREEN_IDLE)
 						}
 					case session_notifications.WTS_SESSION_UNLOCK:
 						crylog.Info("win session unlocked")
 						currentlyLocked = false
 						if isIdle {
 							isIdle = false
-							ret <- csminer.ScreenState(csminer.SCREEN_ACTIVE)
+							ret <- csminer.MachineState(csminer.SCREEN_ACTIVE)
 						}
 					default:
 					}
@@ -58,18 +58,18 @@ func (ss *WinScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 				close(m.ChanOk)
 			case <-time.After(10 * time.Second):
 				b, err := isBatteryPower()
-				if err  != nil {
+				if err != nil {
 					crylog.Error("failed to get battery power state:", err)
 				} else {
 					if b != batteryPower {
 						if b {
 							crylog.Info("Detected battery power")
 							batteryPower = true
-							ret <- csminer.ScreenState(csminer.BATTERY_POWER)
+							ret <- csminer.MachineState(csminer.BATTERY_POWER)
 						} else {
 							crylog.Info("Detected AC power")
 							batteryPower = false
-							ret <- csminer.ScreenState(csminer.AC_POWER)
+							ret <- csminer.MachineState(csminer.AC_POWER)
 						}
 					}
 				}
@@ -85,24 +85,26 @@ func (ss *WinScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 					if saver {
 						crylog.Info("Detected running screensaver")
 						isIdle = true
-						ret <- csminer.ScreenState(csminer.SCREEN_IDLE)
+						ret <- csminer.MachineState(csminer.SCREEN_IDLE)
 					} else {
 						crylog.Info("No longer detecting active screensaver")
 						isIdle = false
-						ret <- csminer.ScreenState(csminer.SCREEN_ACTIVE)
+						ret <- csminer.MachineState(csminer.SCREEN_ACTIVE)
 					}
 				}
 			}
 		}
-		crylog.Error("win screen stater loop exit")
+		crylog.Error("win machine stater loop exit")
 	}()
 
-	session_notifications.Subscribe(chanMessages, chanClose)
+	if saver {
+		session_notifications.Subscribe(chanMessages, chanClose)
+	}
 	return ret, nil
 }
 
 func main() {
-	ss := WinScreenStater{lockedOnStartup: false}
+	ss := WinMachineStater{lockedOnStartup: false}
 	csminer.MultiMain(&ss, "csminer "+csminer.VERSION_STRING+" (win)")
 }
 

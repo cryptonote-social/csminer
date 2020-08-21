@@ -12,13 +12,17 @@ import (
 )
 
 func main() {
-	csminer.MultiMain(GnomeScreenStater{}, "csminer "+csminer.VERSION_STRING+" (linux)")
+	csminer.MultiMain(GnomeMachineStater{}, "csminer "+csminer.VERSION_STRING+" (linux)")
 }
 
-type GnomeScreenStater struct {
+type GnomeMachineStater struct {
 }
 
-func (s GnomeScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, error) {
+func (s GnomeMachineStater) GetMachineStateChannel(saver bool) (chan csminer.MachineState, error) {
+	ret := make(chan csminer.MachineState)
+	if !saver {
+		return ret, nil // return channel on which we never send updates
+	}
 	bus, err := dbus.ConnectSessionBus()
 	if err != nil {
 		crylog.Error("dbus connection failed")
@@ -34,8 +38,6 @@ func (s GnomeScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 	dChan := make(chan *dbus.Message, 128)
 	bus.Eavesdrop(dChan)
 
-	ret := make(chan csminer.ScreenState)
-
 	go func() {
 		defer bus.Close()
 		for m := range dChan {
@@ -47,11 +49,11 @@ func (s GnomeScreenStater) GetScreenStateChannel() (chan csminer.ScreenState, er
 				str := fmt.Sprintf("%v", m.Body[0])
 				if str == "true" {
 					crylog.Info("Gnome screensaver turned on")
-					ret <- csminer.ScreenState(csminer.SCREEN_IDLE)
+					ret <- csminer.MachineState(csminer.SCREEN_IDLE)
 					continue
 				} else if str == "false" {
 					crylog.Info("Gnome screensaver turned off")
-					ret <- csminer.ScreenState(csminer.SCREEN_ACTIVE)
+					ret <- csminer.MachineState(csminer.SCREEN_ACTIVE)
 					continue
 				}
 			}
