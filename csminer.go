@@ -84,7 +84,7 @@ func MultiMain(s MachineStater, agent string) {
 			crylog.Fatal(INVALID_EXCLUDE_FORMAT_MESSAGE, err)
 			return
 		}
-		if hr1 > 24 || hr1 < 0 || hr2 > 24 || hr1 < 0 {
+		if hr1 > 24 || hr1 < 0 || hr2 > 24 || hr2 < 0 {
 			crylog.Fatal("INVALID_EXCLUDE_FORMAT_MESSAGE", ": XX and YY must each be between 0 and 24")
 			return
 		}

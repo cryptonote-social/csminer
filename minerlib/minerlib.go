@@ -267,7 +267,7 @@ func InitMiner(args *InitMinerArgs) *InitMinerResponse {
 	r := &InitMinerResponse{}
 	hr1 := args.ExcludeHourStart
 	hr2 := args.ExcludeHourEnd
-	if hr1 > 24 || hr1 < 0 || hr2 > 24 || hr1 < 0 {
+	if hr1 > 24 || hr1 < 0 || hr2 > 24 || hr2 < 0 {
 		r.Code = 3
 		r.Message = "exclude_hour_start and exclude_hour_end must each be between 0 and 24"
 		return r
