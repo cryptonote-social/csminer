@@ -22,7 +22,7 @@ const (
 	SUBMIT_WORK_JSON_ID = 999
 	CONNECT_JSON_ID     = 666
 
-	MAX_REQUEST_SIZE = 10000 // Max # of bytes we will read per request
+	MAX_REQUEST_SIZE = 50000 // Max # of bytes we will read per request
 
 	NO_WALLET_SPECIFIED_WARNING_CODE = 2
 )
@@ -83,7 +83,7 @@ type SubmitWorkResponse struct {
 	Method  string          `json:"method"`
 	Job     *MultiClientJob `json:"params"`
 	Result  *SubmitWorkResult
-	Error   map[string]interface{} `json:"error"`
+	Error   interface{} `json:"error"`
 }
 
 type Client struct {
