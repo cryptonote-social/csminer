@@ -637,7 +637,7 @@ func goMine(job client.MultiClientJob, thread int) {
 				crylog.Warn("Submit work client failure:", jobid, err)
 				return
 			}
-			if len(resp.Error) > 0 {
+			if resp.Error != nil {
 				stats.ShareRejected()
 				crylog.Warn("Submit work server error:", jobid, resp.Error)
 				return
