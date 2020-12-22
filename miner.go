@@ -105,7 +105,7 @@ func Mine(c *MinerConfig) error {
 	ch, err := c.MachineStater.GetMachineStateChannel(c.Saver)
 	if err != nil {
 		minerlib.ReportIdleScreenState(true)
-		crylog.Error("failed to machine state monitor, screen & battery state will be ignored")
+		crylog.Error("failed to get machine state monitor, screen & battery state will be ignored")
 	} else {
 		go monitorMachineState(ch)
 	}
