@@ -30,13 +30,30 @@ int main(int argc, char* argv[]) {
   report_lock_screen_state(true); // pretend screen is locked so we will mine
 
   pool_login_args pl_args;
-  pl_args.agent = "Super Power Ultimate Miner (S.P.U.M.) v0.6.9";
+  pl_args.agent = "csminer / minerlib test script";
   pl_args.rigid = NULL;
   pl_args.wallet = NULL;
   pl_args.config = NULL;
 
+  get_miner_state_response ms_resp;
+
   // Login loop. Alternate between 2 accounts every minute to make sure account switching works.
   while (true) {
+    printf("Entering get_miner_state polling loop, 30 polls with 1 second sleep inbetween\n");
+    for (int i = 0; i < 30; ++i) {
+        ms_resp = get_miner_state();
+        printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
+        printf("Threads active: %d\n", ms_resp.threads);
+        printf("Mining activity state: %d\n", ms_resp.mining_activity);
+        free((void*)ms_resp.username);
+        free((void*)ms_resp.time_to_reward);
+		increase_threads();
+        sleep(.5);
+		decrease_threads();		
+        sleep(.5);
+    }
+
+
     pl_args.username = "cryptonote-social";
     if (argc > 1) {
       printf("using arg for username: %s\n", argv[1]);
@@ -61,6 +78,28 @@ int main(int argc, char* argv[]) {
 	  }
 	}
 	free((void*)pl_resp.message);
+	
+	send_chat("testing chat sending this is the chat message");
+
+	printf("Entering get_miner_state polling loop, 60 polls with 1 second sleep inbetween\n");
+    for (int i = 0; i < 60; ++i) {
+        ms_resp = get_miner_state();
+        printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
+        printf("Threads active: %d\n", ms_resp.threads);
+        printf("Mining activity state: %d\n", ms_resp.mining_activity);
+        printf("Chats available: %s\n", ms_resp.chats_available ? "yes" : "no");
+		if (ms_resp.chats_available) {
+		  next_chat_response nc_resp;
+		  nc_resp = next_chat();
+		  printf("Got chat message: [ %s ] %s  (%ld)\n", nc_resp.username, nc_resp.message, nc_resp.timestamp);
+		  free((void*)nc_resp.username);
+		  free((void*)nc_resp.message);
+		}
+        free((void*)ms_resp.username);
+        free((void*)ms_resp.time_to_reward);
+        sleep(1);
+    }
+
 
     sleep(10);
     printf("Setting screen state to active\n");
@@ -76,8 +115,8 @@ int main(int argc, char* argv[]) {
     report_power_state(false);
 
     printf("Sleeping for 2 minutes before trying another login.\n");
-    sleep(60);
-	get_miner_state_response ms_resp = get_miner_state();
+    sleep(30);
+	ms_resp = get_miner_state();
 	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
 	printf("Threads active: %d\n", ms_resp.threads);
     printf("Mining activity state: %d\n", ms_resp.mining_activity);
@@ -93,6 +132,14 @@ int main(int argc, char* argv[]) {
         printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
         printf("Threads active: %d\n", ms_resp.threads);
         printf("Mining activity state: %d\n", ms_resp.mining_activity);
+        printf("Chats available: %s\n", ms_resp.chats_available ? "yes" : "no");
+		if (ms_resp.chats_available) {
+		  next_chat_response nc_resp;
+		  nc_resp = next_chat();
+		  printf("Got chat message: [ %s ] %s  (%ld)\n", nc_resp.username, nc_resp.message, nc_resp.timestamp);
+		  free((void*)nc_resp.username);
+		  free((void*)nc_resp.message);
+		}
         free((void*)ms_resp.username);
         free((void*)ms_resp.time_to_reward);
         sleep(1);
@@ -115,8 +162,8 @@ int main(int argc, char* argv[]) {
 	}
 	free((void*)pl_resp.message);
 
-    printf("Sleeping for 2 minutes before looping again.\n");
-    sleep(60);
+    printf("Sleeping for 30 sec before looping again.\n");
+    sleep(30);
 	ms_resp = get_miner_state();
 	printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
 	printf("Threads active: %d\n", ms_resp.threads);
@@ -126,8 +173,8 @@ int main(int argc, char* argv[]) {
 
     printf("Decreasing threads\n");
     decrease_threads();
-    printf("Entering get_miner_state polling loop, 60 polls with 1 second sleep inbetween\n");
-    for (int i = 0; i < 60; ++i) {
+    printf("Entering get_miner_state polling loop, 30 polls with 1 second sleep inbetween\n");
+    for (int i = 0; i < 30; ++i) {
         ms_resp = get_miner_state();
         printf("Hashrate was: %f\n", ms_resp.recent_hashrate);
         printf("Threads active: %d\n", ms_resp.threads);

@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
  
 typedef struct pool_login_args {
@@ -114,6 +115,10 @@ typedef struct get_miner_state_response {
   //
   //	MINING_ACTIVE_USER_OVERRIDE = 2
   //     indicates miner is actively mining, and is in "user forced active mining override" state.
+  //
+  //    MINING_ACTIVE_CHATS_TO_SEND = 3
+  //     indicates miner is actively mining to generate a share so that a chat message can be delivered.
+
   int  mining_activity;
 
   int  threads;  // number of threads actively mining
@@ -149,6 +154,8 @@ typedef struct get_miner_state_response {
   const char* time_to_reward; // An estimate of the time to next reward in a pretty-printable
 							  // format, e.g. "3.5 days". This is just an estimate based on pool
 							  // hashrate and other dynamic factors
+
+  bool chats_available;  // whether there are chat messages available to display (see next_chat)
 } get_miner_state_response;
 
 get_miner_state_response get_miner_state() {
@@ -158,14 +165,40 @@ get_miner_state_response get_miner_state() {
   response.threads = (int)r.r1;
   response.recent_hashrate = (float)r.r2;
   response.username = r.r3;
-  response.time_to_reward = r.r9;
   response.seconds_old = (int)r.r4;
   response.lifetime_hashes = (long)r.r5;
   response.paid = (float)r.r6;
   response.owed = (float)r.r7;
   response.accumulated = (float)r.r8;
-
+  response.time_to_reward = r.r9;
+  response.chats_available = (bool)r.r10;
   return response;
+}
+
+typedef struct next_chat_response {
+  // NOTE: you must free() each const char*
+  const char* username; // username of the user who sent the chat (ascii)
+  const char* message; // the chat message (unicode)
+  int64_t timestamp; // unix timestamp of when the chat was received by chat server
+} next_chat_response;
+
+// Return the next available chat message. If there are no chat messages left to return,
+// the chat response will have empty username/message
+next_chat_response next_chat() {
+  struct NextChat_return r = NextChat();
+  next_chat_response response;
+  response.username = r.r0;
+  response.message = r.r1;
+  response.timestamp = (int64_t)r.r2;
+  return response;
+}
+
+// Queue a chat message for sending.  Returns a code indicating if successful (0) or not. Right now
+// only success is returned.  Message might not be sent immediately, e.g. miner may wait to send it
+// with the next mined share.
+int send_chat(char *message) {
+  SendChat(message);
+  return 0;
 }
 
 // Increase the number of threads by 1. This may fail. get_miner_state will

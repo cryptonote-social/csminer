@@ -4,6 +4,7 @@ import "C"
 
 import (
 	"github.com/cryptonote-social/csminer/minerlib"
+	"github.com/cryptonote-social/csminer/minerlib/chat"
 )
 
 //export PoolLogin
@@ -46,12 +47,31 @@ func GetMinerState() (
 	secondsOld int,
 	lifetimeHashes int64,
 	paid, owed, accumulated float64,
-	timeToReward *C.char) {
+	timeToReward *C.char,
+	chatsAvailable bool) {
 	resp := minerlib.GetMiningState()
 
 	return resp.MiningActivity, resp.Threads, resp.RecentHashrate,
 		C.CString(resp.PoolUsername), resp.SecondsOld, resp.LifetimeHashes,
-		resp.Paid, resp.Owed, resp.Accumulated, C.CString(resp.TimeToReward)
+		resp.Paid, resp.Owed, resp.Accumulated, C.CString(resp.TimeToReward),
+		resp.ChatsAvailable
+}
+
+//export NextChat
+func NextChat() (
+	username *C.char,
+	message *C.char,
+	timestamp int64) {
+	nc := chat.NextChatReceived()
+	if nc == nil {
+		return C.CString(""), C.CString(""), 0
+	}
+	return C.CString(nc.Username), C.CString(nc.Message), nc.Timestamp
+}
+
+//export SendChat
+func SendChat(message *C.char) {
+	chat.SendChat(C.GoString(message))
 }
 
 //export IncreaseThreads

@@ -21,6 +21,7 @@ import (
 const (
 	SUBMIT_WORK_JSON_ID = 999
 	CONNECT_JSON_ID     = 666
+	GET_CHATS_JSON_ID   = 9999
 
 	MAX_REQUEST_SIZE = 50000 // Max # of bytes we will read per request
 
@@ -35,6 +36,8 @@ type Job struct {
 	// For self-select mode:
 	PoolWallet string `json:"pool_wallet"`
 	ExtraNonce string `json:"extra_nonce"`
+
+	ChatToken int `json:"chat_token"` // custom field
 }
 
 type RXJob struct {
@@ -72,24 +75,60 @@ type SubmitWorkResult struct {
 	NetworkDifficulty int64   // difficulty, possibly smoothed over the last several blocks
 
 	// TODO: These pool config values rarely change, so we should fetch these in some other way
-	// instead of returning them from each SubmitWork call.
+	// instead of returning them from each SubmitWork call, or perhaps only return them when
+	// they change.
 	PoolMargin float64
 	PoolFee    float64
 }
 
-type SubmitWorkResponse struct {
-	ID      uint64          `json:"id"`
-	Jsonrpc string          `json:"jsonrpc"`
-	Method  string          `json:"method"`
-	Job     *MultiClientJob `json:"params"`
-	Result  *SubmitWorkResult
-	Error   interface{} `json:"error"`
+type ChatResult struct {
+	Username  string // user sending the chat
+	Message   string // the chat message
+	Timestamp int64  // unix time in seconds when the chat message was sent
+}
+
+type GetChatsResult struct {
+	Chats     []ChatResult
+	NextToken int
+}
+
+type Response struct {
+	ID      uint64 `json:"id"`
+	Jsonrpc string `json:"jsonrpc"`
+	Method  string `json:"method"`
+
+	Job    *MultiClientJob  `json:"params"` // used to send jobs over the connection
+	Result *json.RawMessage `json:"result"` // used to return SubmitWork or GetChats results
+
+	Error interface{} `json:"error"`
+
+	ChatToken int `json:"chat_token"` // custom field
+}
+
+type loginResponse struct {
+	ID      uint64 `json:"id"`
+	Jsonrpc string `json:"jsonrpc"`
+	Result  *struct {
+		ID  string          `json:"id"`
+		Job *MultiClientJob `job:"job"`
+	} `json:"result"`
+	Error *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+	// our own custom field for reporting login warnings without forcing disconnect from error:
+	Warning *struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"warning"`
+
+	ChatToken int `json:"chat_token"` // custom field
 }
 
 type Client struct {
 	address         string
 	conn            net.Conn
-	responseChannel chan *SubmitWorkResponse
+	responseChannel chan *Response
 
 	mutex sync.Mutex
 
@@ -164,23 +203,7 @@ func (cl *Client) Connect(
 	}
 
 	// Now read the login response
-	response := &struct {
-		ID      uint64 `json:"id"`
-		Jsonrpc string `json:"jsonrpc"`
-		Result  *struct {
-			ID  string          `json:"id"`
-			Job *MultiClientJob `job:"job"`
-		} `json:"result"`
-		Error *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-		// our own custom field for reporting login warnings without forcing disconnect from error:
-		Warning *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"warning"`
-	}{}
+	response := &loginResponse{}
 	cl.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	rdr := bufio.NewReaderSize(cl.conn, MAX_REQUEST_SIZE)
 	err = readJSON(response, rdr)
@@ -193,7 +216,7 @@ func (cl *Client) Connect(
 		return errors.New("stratum server error"), response.Error.Code, response.Error.Message, nil
 	}
 
-	cl.responseChannel = make(chan *SubmitWorkResponse)
+	cl.responseChannel = make(chan *Response)
 	cl.alive = true
 	jc := make(chan *MultiClientJob)
 	go dispatchJobs(cl.conn, jc, response.Result.Job, cl.responseChannel)
@@ -204,7 +227,7 @@ func (cl *Client) Connect(
 }
 
 // if error is returned then client will be closed and put in not-alive state
-func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce string, connNonce []byte, jobid string, targetDifficulty int64) (*SubmitWorkResponse, error) {
+func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce string, connNonce []byte, jobid string, targetDifficulty int64) (*Response, error) {
 	submitRequest := &struct {
 		ID     uint64      `json:"id"`
 		Method string      `json:"method"`
@@ -225,11 +248,11 @@ func (cl *Client) SubmitMulticlientWork(username string, rigid string, nonce str
 		}{"696969", jobid, nonce, "", username, rigid, targetDifficulty, connNonce},
 	}
 
-	return cl.submitRequest(submitRequest)
+	return cl.submitRequest(submitRequest, SUBMIT_WORK_JSON_ID)
 }
 
 // if error is returned then client will be closed and put in not-alive state
-func (cl *Client) submitRequest(submitRequest interface{}) (*SubmitWorkResponse, error) {
+func (cl *Client) submitRequest(submitRequest interface{}, expectedResponseID uint64) (*Response, error) {
 	cl.mutex.Lock()
 	if !cl.alive {
 		cl.mutex.Unlock()
@@ -257,15 +280,31 @@ func (cl *Client) submitRequest(submitRequest interface{}) (*SubmitWorkResponse,
 		crylog.Error("got nil response, closing")
 		return nil, fmt.Errorf("submit work failure: nil response")
 	}
-	if response.ID != SUBMIT_WORK_JSON_ID {
-		crylog.Error("got unexpected response:", response.ID, "Closing connection.")
+	if response.ID != expectedResponseID {
+		crylog.Error("got unexpected response:", response.ID, "wanted:", expectedResponseID, "Closing connection.")
 		return nil, fmt.Errorf("submit work failure: unexpected response")
 	}
 	return response, nil
 }
 
+func (cl *Client) GetChats(chatToken int) (*Response, error) {
+	chatRequest := &struct {
+		ID     uint64      `json:"id"`
+		Method string      `json:"method"`
+		Params interface{} `json:"params"`
+	}{
+		ID:     GET_CHATS_JSON_ID,
+		Method: "get_chats",
+		Params: &struct {
+			ChatToken int `json:"chat_token"`
+		}{chatToken},
+	}
+
+	return cl.submitRequest(chatRequest, GET_CHATS_JSON_ID)
+}
+
 // if error is returned then client will be closed and put in not-alive state
-func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, error) {
+func (cl *Client) SubmitWork(nonce string, jobid string, chat string, chatID int) (*Response, error) {
 	submitRequest := &struct {
 		ID     uint64      `json:"id"`
 		Method string      `json:"method"`
@@ -278,9 +317,12 @@ func (cl *Client) SubmitWork(nonce string, jobid string) (*SubmitWorkResponse, e
 			JobID  string `json:"job_id"`
 			Nonce  string `json:"nonce"`
 			Result string `json:"result"`
-		}{"696969", jobid, nonce, ""},
+
+			Chat   string `json:"chat"`
+			ChatID int    `json:"chat_id"`
+		}{"696969", jobid, nonce, "", chat, chatID},
 	}
-	return cl.submitRequest(submitRequest)
+	return cl.submitRequest(submitRequest, SUBMIT_WORK_JSON_ID)
 }
 
 func (cl *Client) Close() {
@@ -293,9 +335,9 @@ func (cl *Client) Close() {
 	cl.conn.Close()
 }
 
-// DispatchJobs will forward incoming jobs to the JobChannel until error is received or the
+// dispatchJobs will forward incoming jobs to the JobChannel until error is received or the
 // connection is closed. Client will be in not-alive state on return.
-func dispatchJobs(conn net.Conn, jobChan chan<- *MultiClientJob, firstJob *MultiClientJob, responseChan chan<- *SubmitWorkResponse) {
+func dispatchJobs(conn net.Conn, jobChan chan<- *MultiClientJob, firstJob *MultiClientJob, responseChan chan<- *Response) {
 	defer func() {
 		close(jobChan)
 		close(responseChan)
@@ -303,25 +345,26 @@ func dispatchJobs(conn net.Conn, jobChan chan<- *MultiClientJob, firstJob *Multi
 	jobChan <- firstJob
 	reader := bufio.NewReaderSize(conn, MAX_REQUEST_SIZE)
 	for {
-		response := &SubmitWorkResponse{}
+		response := &Response{}
 		conn.SetReadDeadline(time.Now().Add(3600 * time.Second))
 		err := readJSON(response, reader)
 		if err != nil {
-			crylog.Error("readJSON failed, closing client and exiting dispatch:", err)
+			crylog.Error("readJSON failed, closing client:", err)
 			break
 		}
 		if response.Method != "job" {
-			if response.ID == SUBMIT_WORK_JSON_ID {
+			if response.ID == SUBMIT_WORK_JSON_ID || response.ID == GET_CHATS_JSON_ID {
 				responseChan <- response
 				continue
 			}
-			crylog.Warn("Unexpected response:", *response)
+			crylog.Warn("Unexpected response from stratum server. Ignoring:", *response)
 			continue
 		}
 		if response.Job == nil {
-			crylog.Error("Didn't get job as expected:", *response)
+			crylog.Error("Didn't get job as expected from stratum server, closing client:", *response)
 			break
 		}
+		response.Job.ChatToken = response.ChatToken
 		jobChan <- response.Job
 	}
 }

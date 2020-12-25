@@ -7,10 +7,12 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cryptonote-social/csminer/crylog"
 	"github.com/cryptonote-social/csminer/minerlib"
+	"github.com/cryptonote-social/csminer/minerlib/chat"
 	"github.com/cryptonote-social/csminer/stratum/client"
 )
 
@@ -141,6 +143,11 @@ func Mine(c *MinerConfig) error {
 				minerlib.RemoveMiningActivityOverride()
 			}
 		}
+		if strings.HasPrefix(b, "c ") {
+			chatMsg := b[2:]
+			chat.SendChat(chatMsg)
+		}
+
 	}
 	crylog.Error("Scanning terminated")
 	return errors.New("didn't expect keyboard scanning to terminate")
@@ -220,8 +227,11 @@ func printStatsPeriodically() {
 	}
 	printStats(false)
 	for {
-		<-time.After(30 * time.Second)
-		printStats(true) // print full stats only if actively mining
+		<-time.After(3 * time.Second)
+		//printStats(true) // print full stats only if actively mining
+		for c := chat.NextChatReceived(); c != nil; c = chat.NextChatReceived() {
+			crylog.Info("\n\nCHAT MESSAGE RECEIVED:\n[", c.Username, "] ", c.Message, "\n")
+		}
 	}
 }
 
@@ -256,6 +266,8 @@ func getActivityMessage(activityState int) string {
 		return "ACTIVE"
 	case minerlib.MINING_ACTIVE_USER_OVERRIDE:
 		return "ACTIVE: keyboard override. <enter> to undo override."
+	case minerlib.MINING_ACTIVE_CHATS_TO_SEND:
+		return "ACTIVE: sending chat message."
 	}
 	crylog.Fatal("Unknown activity state:", activityState)
 	if activityState > 0 {

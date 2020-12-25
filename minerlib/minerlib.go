@@ -3,12 +3,14 @@ package minerlib
 import (
 	"github.com/cryptonote-social/csminer/blockchain"
 	"github.com/cryptonote-social/csminer/crylog"
+	"github.com/cryptonote-social/csminer/minerlib/chat"
 	"github.com/cryptonote-social/csminer/minerlib/stats"
 	"github.com/cryptonote-social/csminer/rx"
 	"github.com/cryptonote-social/csminer/stratum/client"
 
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
@@ -45,6 +47,9 @@ const (
 
 	// Indicates miner is actively mining due to user-initiated override
 	MINING_ACTIVE_USER_OVERRIDE = 2
+
+	// Indicates miner is actively mining to deliver a chat message
+	MINING_ACTIVE_CHATS_TO_SEND = 3
 
 	// for PokeChannel stuff:
 	HANDLED    = 1
@@ -147,6 +152,10 @@ func getMiningActivityState() int {
 
 	if miningOverride == OVERRIDE_MINE {
 		return MINING_ACTIVE_USER_OVERRIDE
+	}
+
+	if chat.HasChatsToSend() {
+		return MINING_ACTIVE_CHATS_TO_SEND
 	}
 
 	if timeExcluded() {
@@ -383,6 +392,10 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 
 		stopWorkers()
 
+		if job.ChatToken != chat.NextToken() {
+			go GetChats()
+		}
+
 		// Check if we need to reinitialize rx dataset
 		newSeed, err := hex.DecodeString(job.SeedHash)
 		if err != nil {
@@ -470,6 +483,7 @@ type GetMiningStateResponse struct {
 	stats.Snapshot
 	MiningActivity int
 	Threads        int
+	ChatsAvailable bool
 }
 
 // poke the job dispatcher to refresh recent stats. result may not be immediate but should happen
@@ -505,6 +519,7 @@ func GetMiningState() *GetMiningStateResponse {
 		Snapshot:       *s,
 		MiningActivity: as,
 		Threads:        threads,
+		ChatsAvailable: chat.HasChats(),
 	}
 }
 
@@ -600,6 +615,23 @@ func printStats(isMining bool) {
 }
 */
 
+func GetChats() {
+	nt := chat.NextToken()
+	crylog.Info("Getting chats:", nt)
+	resp, err := cl.GetChats(nt)
+	if err != nil {
+		crylog.Error("Failed to retrieve chats:", nt, err)
+	}
+	cr := &client.GetChatsResult{}
+	err = json.Unmarshal(*resp.Result, cr)
+	if err != nil {
+		crylog.Warn("Failed to unmarshal GetChatsResult:", err)
+		cl.Close()
+		return
+	}
+	chat.ChatsReceived(cr.Chats, cr.NextToken, nt)
+}
+
 func goMine(job client.MultiClientJob, thread int) {
 	defer wg.Done()
 	input, err := hex.DecodeString(job.Blob)
@@ -631,10 +663,12 @@ func goMine(job client.MultiClientJob, thread int) {
 				}
 				time.Sleep(time.Second)
 			}
-			resp, err := cl.SubmitWork(fnonce, jobid)
+			chatMsg, chatID := chat.GetChatToSend()
+			//crylog.Info("sending chatmsg:", chatMsg)
+			resp, err := cl.SubmitWork(fnonce, jobid, chatMsg, chatID)
 			if err != nil {
-				cl.Close()
 				crylog.Warn("Submit work client failure:", jobid, err)
+				cl.Close()
 				return
 			}
 			if resp.Error != nil {
@@ -642,15 +676,29 @@ func goMine(job client.MultiClientJob, thread int) {
 				crylog.Warn("Submit work server error:", jobid, resp.Error)
 				return
 			}
+			chat.ChatSent(chatID)
 			stats.ShareAccepted(diffTarget)
-			swr := resp.Result
-			if swr != nil {
-				if swr.PoolMargin > 0.0 {
-					stats.RefreshPoolStats2(swr)
-				} else {
-					crylog.Warn("Didn't get pool stats in response:", resp.Result)
-					updatePoolStats(true)
-				}
+			if resp.Result == nil {
+				crylog.Warn("nil result")
+				cl.Close()
+				return
+			}
+			swr := &client.SubmitWorkResult{}
+			err = json.Unmarshal(*resp.Result, swr)
+			if err != nil {
+				crylog.Warn("Failed to unmarshal SubmitWorkResult:", jobid, err)
+				cl.Close()
+				return
+			}
+			if swr.PoolMargin > 0.0 {
+				stats.RefreshPoolStats2(swr)
+			} else {
+				crylog.Warn("Didn't get pool stats in response:", resp.Result)
+				updatePoolStats(true)
+			}
+			//crylog.Info("Chat token:", resp.ChatToken, chat.NextToken())
+			if resp.ChatToken > 0 && resp.ChatToken != chat.NextToken() {
+				go GetChats()
 			}
 		}(fnonce, job.JobID)
 	}
@@ -741,6 +789,8 @@ func getActivityMessage(activityState int) string {
 		return "ACTIVE"
 	case MINING_ACTIVE_USER_OVERRIDE:
 		return "ACTIVE: user override."
+	case MINING_ACTIVE_CHATS_TO_SEND:
+		return "ACTIVE: sending chat message."
 	}
 	crylog.Error("Unknown activity state:", activityState)
 	if activityState > 0 {
