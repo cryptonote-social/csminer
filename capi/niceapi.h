@@ -197,7 +197,7 @@ next_chat_response next_chat() {
 // only success is returned.  Message might not be sent immediately, e.g. miner may wait to send it
 // with the next mined share.
 int send_chat(char *message) {
-  SendChat(message);
+  SendChat(const_cast<char*>(message));
   return 0;
 }
 
