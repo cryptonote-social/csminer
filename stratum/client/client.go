@@ -219,6 +219,7 @@ func (cl *Client) Connect(
 	cl.responseChannel = make(chan *Response)
 	cl.alive = true
 	jc := make(chan *MultiClientJob)
+	response.Result.Job.ChatToken = response.ChatToken
 	go dispatchJobs(cl.conn, jc, response.Result.Job, cl.responseChannel)
 	if response.Warning != nil {
 		return nil, response.Warning.Code, response.Warning.Message, jc

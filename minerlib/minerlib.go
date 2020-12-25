@@ -385,16 +385,15 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 			} else {
 				crylog.Info(infoStr, " Mining: ACTIVE")
 			}
+			if job.ChatToken != chat.NextToken() {
+				go GetChats()
+			}
 
 		case <-time.After(30 * time.Second):
 			break
 		}
 
 		stopWorkers()
-
-		if job.ChatToken != chat.NextToken() {
-			go GetChats()
-		}
 
 		// Check if we need to reinitialize rx dataset
 		newSeed, err := hex.DecodeString(job.SeedHash)
