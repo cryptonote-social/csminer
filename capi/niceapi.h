@@ -196,8 +196,8 @@ next_chat_response next_chat() {
 // Queue a chat message for sending.  Returns a code indicating if successful (0) or not. Right now
 // only success is returned.  Message might not be sent immediately, e.g. miner may wait to send it
 // with the next mined share.
-int send_chat(char *message) {
-  SendChat(const_cast<char*>(message));
+int send_chat(const char *message) {
+  SendChat((char*)message);
   return 0;
 }
 
