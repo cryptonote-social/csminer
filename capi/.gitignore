@@ -1,4 +1,6 @@
 capi.a
 capi.h
+capi.dylib
+capi.so
 test.o
 test
