@@ -390,6 +390,7 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 			}
 
 		case <-time.After(30 * time.Second):
+			go GetChats()
 			break
 		}
 
@@ -695,8 +696,7 @@ func goMine(job client.MultiClientJob, thread int) {
 				crylog.Warn("Didn't get pool stats in response:", resp.Result)
 				updatePoolStats(true)
 			}
-			//crylog.Info("Chat token:", resp.ChatToken, chat.NextToken())
-			if resp.ChatToken > 0 && resp.ChatToken != chat.NextToken() {
+			if resp.ChatToken != chat.NextToken() {
 				go GetChats()
 			}
 		}(fnonce, job.JobID)

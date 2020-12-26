@@ -54,15 +54,15 @@ func ChatSent(id int) {
 }
 
 func ChatsReceived(chats []client.ChatResult, chatToken int, fetchedToken int) {
-	if len(chats) == 0 {
-		return
+	if len(chats) != 0 {
+		crylog.Info("Chats received:", chats)
 	}
-	crylog.Info("Chats received:", chats)
 	mutex.Lock()
 	defer mutex.Unlock()
 	if nextToken != fetchedToken {
-		crylog.Warn("Skipping dupe chats:", chats)
-		return // these chats are already handled
+		// Another chat request must have succeeded before this one.
+		crylog.Warn("chats updated since this fetch, discarding:", chats)
+		return
 	}
 	for i := range chats {
 		receivedQueue = append(receivedQueue, &chats[i])
