@@ -621,6 +621,7 @@ func GetChats() {
 	resp, err := cl.GetChats(nt)
 	if err != nil {
 		crylog.Error("Failed to retrieve chats:", nt, err)
+		return
 	}
 	cr := &client.GetChatsResult{}
 	err = json.Unmarshal(*resp.Result, cr)
