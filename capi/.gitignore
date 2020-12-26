@@ -1,6 +1,6 @@
 capi.a
 capi.h
-capi.dylib
+capi.dynlib
 capi.so
 test.o
 test
