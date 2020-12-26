@@ -61,17 +61,18 @@ func GetMinerState() (
 func NextChat() (
 	username *C.char,
 	message *C.char,
+	id int64,
 	timestamp int64) {
 	nc := chat.NextChatReceived()
 	if nc == nil {
-		return C.CString(""), C.CString(""), 0
+		return C.CString(""), C.CString(""), 0, 0
 	}
-	return C.CString(nc.Username), C.CString(nc.Message), nc.Timestamp
+	return C.CString(nc.Username), C.CString(nc.Message), nc.ID, nc.Timestamp
 }
 
 //export SendChat
-func SendChat(message *C.char) {
-	chat.SendChat(C.GoString(message))
+func SendChat(message *C.char) int64 {
+	return chat.SendChat(C.GoString(message))
 }
 
 //export IncreaseThreads

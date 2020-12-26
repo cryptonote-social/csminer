@@ -16,7 +16,9 @@ import (
 	"github.com/cryptonote-social/csminer/stratum/client"
 )
 
-var ()
+var (
+	chatsSent map[int64]struct{}
+)
 
 const (
 	// Valid machine state changes
@@ -47,6 +49,7 @@ type MinerConfig struct {
 }
 
 func Mine(c *MinerConfig) error {
+	chatsSent = map[int64]struct{}{}
 	imResp := minerlib.InitMiner(&minerlib.InitMinerArgs{
 		Threads:          c.Threads,
 		ExcludeHourStart: c.ExcludeHrStart,
@@ -145,7 +148,9 @@ func Mine(c *MinerConfig) error {
 		}
 		if strings.HasPrefix(b, "c ") {
 			chatMsg := b[2:]
-			chat.SendChat(chatMsg)
+			id := chat.SendChat(chatMsg)
+			chatsSent[id] = struct{}{}
+			crylog.Info("\n\nCHAT MESSAGE QUEUED TO SEND:\n[", c.Username, "] (", time.Now().Truncate(time.Second), ")\n", chatMsg, "\n")
 		}
 
 	}
@@ -230,7 +235,12 @@ func printStatsPeriodically() {
 		<-time.After(3 * time.Second)
 		//printStats(true) // print full stats only if actively mining
 		for c := chat.NextChatReceived(); c != nil; c = chat.NextChatReceived() {
-			crylog.Info("\n\nCHAT MESSAGE RECEIVED:\n[", c.Username, "] ", c.Message, "\n")
+			_, ok := chatsSent[c.ID]
+			if !ok {
+				crylog.Info("\n\nCHAT MESSAGE RECEIVED:\n[", c.Username, "] (", time.Unix(c.Timestamp, 0), ")\n", c.Message, "\n")
+			} else {
+				crylog.Info("Chat sent:", c.Message)
+			}
 		}
 	}
 }

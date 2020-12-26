@@ -37,7 +37,7 @@ type Job struct {
 	PoolWallet string `json:"pool_wallet"`
 	ExtraNonce string `json:"extra_nonce"`
 
-	ChatToken int `json:"chat_token"` // custom field
+	ChatToken int64 `json:"chat_token"` // custom field
 }
 
 type RXJob struct {
@@ -84,12 +84,13 @@ type SubmitWorkResult struct {
 type ChatResult struct {
 	Username  string // user sending the chat
 	Message   string // the chat message
+	ID        int64  // ID sent by client to uniquely identify this chat
 	Timestamp int64  // unix time in seconds when the chat message was sent
 }
 
 type GetChatsResult struct {
 	Chats     []ChatResult
-	NextToken int
+	NextToken int64
 }
 
 type Response struct {
@@ -102,7 +103,7 @@ type Response struct {
 
 	Error interface{} `json:"error"`
 
-	ChatToken int `json:"chat_token"` // custom field
+	ChatToken int64 `json:"chat_token"` // custom field
 }
 
 type loginResponse struct {
@@ -122,7 +123,7 @@ type loginResponse struct {
 		Message string `json:"message"`
 	} `json:"warning"`
 
-	ChatToken int `json:"chat_token"` // custom field
+	ChatToken int64 `json:"chat_token"` // custom field
 }
 
 type Client struct {
@@ -288,7 +289,7 @@ func (cl *Client) submitRequest(submitRequest interface{}, expectedResponseID ui
 	return response, nil
 }
 
-func (cl *Client) GetChats(chatToken int) (*Response, error) {
+func (cl *Client) GetChats(chatToken int64) (*Response, error) {
 	chatRequest := &struct {
 		ID     uint64      `json:"id"`
 		Method string      `json:"method"`
@@ -297,7 +298,7 @@ func (cl *Client) GetChats(chatToken int) (*Response, error) {
 		ID:     GET_CHATS_JSON_ID,
 		Method: "get_chats",
 		Params: &struct {
-			ChatToken int `json:"chat_token"`
+			ChatToken int64 `json:"chat_token"`
 		}{chatToken},
 	}
 
@@ -305,7 +306,7 @@ func (cl *Client) GetChats(chatToken int) (*Response, error) {
 }
 
 // if error is returned then client will be closed and put in not-alive state
-func (cl *Client) SubmitWork(nonce string, jobid string, chat string, chatID int) (*Response, error) {
+func (cl *Client) SubmitWork(nonce string, jobid string, chat string, chatID int64) (*Response, error) {
 	submitRequest := &struct {
 		ID     uint64      `json:"id"`
 		Method string      `json:"method"`
@@ -320,7 +321,7 @@ func (cl *Client) SubmitWork(nonce string, jobid string, chat string, chatID int
 			Result string `json:"result"`
 
 			Chat   string `json:"chat"`
-			ChatID int    `json:"chat_id"`
+			ChatID int64  `json:"chat_id"`
 		}{"696969", jobid, nonce, "", chat, chatID},
 	}
 	return cl.submitRequest(submitRequest, SUBMIT_WORK_JSON_ID)

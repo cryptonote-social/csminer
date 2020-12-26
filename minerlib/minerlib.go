@@ -617,7 +617,7 @@ func printStats(isMining bool) {
 
 func GetChats() {
 	nt := chat.NextToken()
-	crylog.Info("Getting chats:", nt)
+	//crylog.Info("Getting chats:", nt)
 	resp, err := cl.GetChats(nt)
 	if err != nil {
 		crylog.Error("Failed to retrieve chats:", nt, err)
