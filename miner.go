@@ -150,7 +150,12 @@ func Mine(c *MinerConfig) error {
 			chatMsg := b[2:]
 			id := chat.SendChat(chatMsg)
 			chatsSent[id] = struct{}{}
-			crylog.Info("\n\nCHAT MESSAGE QUEUED TO SEND:\n[", c.Username, "] (", time.Now().Truncate(time.Second), ")\n", chatMsg, "\n")
+			u := c.Username
+			if c.Wallet == "" {
+				u = client.UNAUTHENTICATED_USER_STRING
+				crylog.Warn("Sending chat without authentication. Provide -wallet string with your user login to authenticate.")
+			}
+			crylog.Info("\n\nCHAT MESSAGE QUEUED TO SEND:\n[", u, "] (", time.Now().Truncate(time.Second), ")\n", chatMsg, "\n")
 		}
 
 	}
@@ -198,6 +203,7 @@ func printKeyboardCommands() {
 	crylog.Info("   s: print miner stats")
 	crylog.Info("   i: increase number of threads by 1")
 	crylog.Info("   d: decrease number of threads by 1")
+	crylog.Info("   c <message>: send a message to the chatroom")
 	crylog.Info("   q: quit")
 	crylog.Info("   <enter>: override a paused miner")
 	crylog.Info("")
@@ -239,7 +245,7 @@ func printStatsPeriodically() {
 			if !ok {
 				crylog.Info("\n\nCHAT MESSAGE RECEIVED:\n[", c.Username, "] (", time.Unix(c.Timestamp, 0), ")\n", c.Message, "\n")
 			} else {
-				crylog.Info("Chat sent:", c.Message)
+				crylog.Info("queued chat successfully sent")
 			}
 		}
 	}

@@ -38,7 +38,6 @@ func SendChat(chat string) int64 {
 	mutex.Lock()
 	defer mutex.Unlock()
 	chatQueue = append(chatQueue, chat)
-	crylog.Info("Chat queued for sending:", chat)
 	return int64(len(chatQueue)-1) ^ randID
 }
 
@@ -51,7 +50,6 @@ func GetChatToSend() (chat string, id int64) {
 	if chatToSendIndex >= len(chatQueue) {
 		return "", -1
 	}
-	crylog.Info("ID:", int64(chatToSendIndex)^randID, randID)
 	return chatQueue[chatToSendIndex], int64(chatToSendIndex) ^ randID
 }
 
@@ -70,8 +68,8 @@ func ChatSent(id int64) {
 }
 
 func ChatsReceived(chats []client.ChatResult, chatToken int64, fetchedToken int64) {
-	if len(chats) != 0 {
-		crylog.Info("Chats received:", chats)
+	if len(chats) == 0 && chatToken == fetchedToken {
+		return
 	}
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -80,6 +78,7 @@ func ChatsReceived(chats []client.ChatResult, chatToken int64, fetchedToken int6
 		crylog.Warn("chats updated since this fetch, discarding:", chats)
 		return
 	}
+	crylog.Info("New chats received:", len(chats), chatToken, fetchedToken)
 	for i := range chats {
 		receivedQueue = append(receivedQueue, &chats[i])
 	}

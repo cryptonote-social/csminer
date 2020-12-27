@@ -26,6 +26,9 @@ const (
 	MAX_REQUEST_SIZE = 50000 // Max # of bytes we will read per request
 
 	NO_WALLET_SPECIFIED_WARNING_CODE = 2
+
+	// user string used for chats sent by any unauthenticated user regardless of their login
+	UNAUTHENTICATED_USER_STRING = "<unauthenticated user>"
 )
 
 type Job struct {
