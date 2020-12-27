@@ -38,8 +38,10 @@ const (
 	// Indicates miner is paused because we're in the user-excluded time period
 	MINING_PAUSED_TIME_EXCLUDED = -6
 
-	// Indicates the most recent login failed so there is no connection to the pool
-	// server. Prompt the user to log in with valid log in parameters.
+	// Indicates the most recent login failed so there is no connection to the pool server. If the
+	// login failure was due to bad credentials, prompt the user to log in with valid log in
+	// parameters.  If the failure is due to no connectivity, retry pool login with some backoff
+	// policy.
 	MINING_PAUSED_NO_LOGIN = -7
 
 	// Indicates miner is actively mining
