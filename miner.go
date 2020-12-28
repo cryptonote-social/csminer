@@ -152,7 +152,7 @@ func Mine(c *MinerConfig) error {
 			chatsSent[id] = struct{}{}
 			u := c.Username
 			if c.Wallet == "" {
-				u = client.UNAUTHENTICATED_USER_STRING
+				u = client.UNAUTHENTICATED_USER_STRING + " (sent by you)"
 				crylog.Warn("Sending chat without authentication. Provide -wallet string with your user login to authenticate.")
 			}
 			crylog.Info("\n\nCHAT MESSAGE QUEUED TO SEND:\n[", u, "] (", time.Now().Truncate(time.Second), ")\n", chatMsg, "\n")
