@@ -24,6 +24,11 @@ var (
 	randID int64
 )
 
+const (
+	HASHES_PER_CHAT     = 5000
+	MAX_CHATS_PER_SHARE = 5
+)
+
 func init() {
 	err := binary.Read(rand.Reader, binary.LittleEndian, &randID)
 	if err != nil {
@@ -41,16 +46,26 @@ func SendChat(chat string) int64 {
 	return int64(len(chatQueue)-1) ^ randID
 }
 
-// GetChatToSend returns the next queued chat message that needs to be delivered.  The function
-// will return the same result until ChatSent is called. It will return ("", -1) if there are no
-// chats to send at this time.
-func GetChatToSend() (chat string, id int64) {
+// GetChatsToSend returns the next queud chat messages to deliver with a valid mining share.  It
+// requires at least HASHES_PER_CHAT hashes to be computed per chat returned, and returns up to
+// MAX_CHATS_PER_SHARE. Returns nil if there are no chats queued to send.
+func GetChatsToSend(diff int64) []client.ChatToSend {
 	mutex.Lock()
 	defer mutex.Unlock()
-	if chatToSendIndex >= len(chatQueue) {
-		return "", -1
+	if chatToSendIndex == len(chatQueue) {
+		return nil
 	}
-	return chatQueue[chatToSendIndex], int64(chatToSendIndex) ^ randID
+	r := []client.ChatToSend{}
+	for diff > HASHES_PER_CHAT && chatToSendIndex < len(chatQueue) && len(r) < MAX_CHATS_PER_SHARE {
+		r = append(r, client.ChatToSend{
+			ID:      int64(chatToSendIndex) ^ randID,
+			Message: chatQueue[chatToSendIndex],
+		})
+		chatToSendIndex++
+		diff -= HASHES_PER_CHAT
+	}
+	// TODO: verify the total bytes we will be sending is within the server's request size limit
+	return r
 }
 
 func HasChatsToSend() bool {

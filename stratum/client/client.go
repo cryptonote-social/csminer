@@ -308,8 +308,13 @@ func (cl *Client) GetChats(chatToken int64) (*Response, error) {
 	return cl.submitRequest(chatRequest, GET_CHATS_JSON_ID)
 }
 
+type ChatToSend struct {
+	ID      int64
+	Message string
+}
+
 // if error is returned then client will be closed and put in not-alive state
-func (cl *Client) SubmitWork(nonce string, jobid string, chat string, chatID int64) (*Response, error) {
+func (cl *Client) SubmitWork(nonce string, jobid string, chats []ChatToSend) (*Response, error) {
 	submitRequest := &struct {
 		ID     uint64      `json:"id"`
 		Method string      `json:"method"`
@@ -323,9 +328,8 @@ func (cl *Client) SubmitWork(nonce string, jobid string, chat string, chatID int
 			Nonce  string `json:"nonce"`
 			Result string `json:"result"`
 
-			Chat   string `json:"chat"`
-			ChatID int64  `json:"chat_id"`
-		}{"696969", jobid, nonce, "", chat, chatID},
+			Chats []ChatToSend `json:"chats"`
+		}{"696969", jobid, nonce, "", chats},
 	}
 	return cl.submitRequest(submitRequest, SUBMIT_WORK_JSON_ID)
 }
