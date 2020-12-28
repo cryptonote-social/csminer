@@ -22,6 +22,7 @@ func PoolLogin(
 		Wallet:   C.GoString(wallet),
 		Agent:    C.GoString(agent),
 		Config:   C.GoString(config),
+		UseTLS:   true,
 	}
 	resp := minerlib.PoolLogin(args)
 	return resp.Code, C.CString(resp.Message)

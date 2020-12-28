@@ -207,8 +207,11 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	agent := args.Agent
 	config := args.Config
 	rigid := args.RigID
-
-	err, code, message, jc := cl.Connect("cryptonote.social:5555", args.UseTLS, agent, loginName, config, rigid)
+	dest := "cryptonote.social:5555"
+	if args.UseTLS {
+		dest = "cryptonote.social:5556"
+	}
+	err, code, message, jc := cl.Connect(dest, args.UseTLS, agent, loginName, config, rigid)
 	if err != nil {
 		if code != 0 {
 			//crylog.Error("Pool server did not allow login due to error:")
