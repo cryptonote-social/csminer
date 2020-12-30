@@ -100,8 +100,8 @@ func ResetRecent() {
 type Snapshot struct {
 	SharesAccepted, SharesRejected   int64
 	ClientSideHashes, PoolSideHashes int64
-	// A negative value for hashrate is used to indicate "still calculating" (e.g. not enough of a
-	// time window to be accurate)
+	// A negative value for RecentHashrate is used to indicate "still calculating" (e.g. not enough
+	// of a time window to be accurate)
 	Hashrate, RecentHashrate float64
 
 	// Pool stats
@@ -137,7 +137,7 @@ func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64, seconds
 	if isMining {
 		// Recent stats are only accurate up to the last snapshot time
 		elapsedRecent = accurateTime.Sub(recentStatsResetTime).Seconds()
-		if elapsedRecent > 5.0 {
+		if elapsedRecent > 5.0 && recentHashesAccurate > 0 {
 			// For accurate results, we require at least 5 seconds of mining during the recent
 			// period in order to return a recent hashrate.
 			r.RecentHashrate = float64(recentHashesAccurate) / elapsedRecent
