@@ -23,7 +23,8 @@ const (
 	CONNECT_JSON_ID     = 666
 	GET_CHATS_JSON_ID   = 9999
 
-	MAX_REQUEST_SIZE = 50000 // Max # of bytes we will read per request
+	MAX_REQUEST_SIZE   = 50000 // Max # of bytes we will read per request
+	MAX_RUNES_PER_CHAT = 1000  // any chats with more than this number of unicode chars will be ignored by server
 
 	NO_WALLET_SPECIFIED_WARNING_CODE = 2
 

@@ -155,7 +155,7 @@ func Mine(c *MinerConfig) error {
 				u = client.UNAUTHENTICATED_USER_STRING + " (sent by you)"
 				crylog.Warn("Sending chat without authentication. Provide -wallet string with your user login to authenticate.")
 			}
-			crylog.Info("\n\nCHAT MESSAGE QUEUED TO SEND:\n[", u, "] (", time.Now().Truncate(time.Second), ")\n", chatMsg, "\n")
+			crylog.Info("\n\n[", u, "] (", time.Now().Truncate(time.Second), ")\n", chatMsg, "\n")
 		}
 
 	}
@@ -243,7 +243,7 @@ func printStatsPeriodically() {
 		for c := chat.NextChatReceived(); c != nil; c = chat.NextChatReceived() {
 			_, ok := chatsSent[c.ID]
 			if !ok {
-				crylog.Info("\n\nCHAT MESSAGE RECEIVED:\n[", c.Username, "] (", time.Unix(c.Timestamp, 0), ")\n", c.Message, "\n")
+				crylog.Info("\n\n[", c.Username, "] (", time.Unix(c.Timestamp, 0), ")\n", c.Message, "\n")
 			} else {
 				crylog.Info("queued chat successfully sent")
 			}
