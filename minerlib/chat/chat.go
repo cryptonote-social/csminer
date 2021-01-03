@@ -93,7 +93,7 @@ func ChatsReceived(chats []client.ChatResult, chatToken int64, fetchedToken int6
 		crylog.Warn("chats updated since this fetch, discarding:", chats)
 		return
 	}
-	crylog.Info("New chats received:", len(chats), chatToken, fetchedToken)
+	//crylog.Info("New chats received:", len(chats), chatToken, fetchedToken)
 	for i := range chats {
 		receivedQueue = append(receivedQueue, &chats[i])
 	}
