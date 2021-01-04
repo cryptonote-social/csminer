@@ -183,7 +183,7 @@ func getServerHostPort(useTLS, dev bool) string {
 		return "cryptonote.social:5556"
 	case !useTLS && !dev:
 		return "cryptonote.social:5555"
-	case useTLS && !dev:
+	case useTLS && dev:
 		return "cryptonote.social:4445"
 		//	case !useTLS && dev:
 	default:
@@ -339,8 +339,8 @@ func reconnectClient() <-chan *client.MultiClientJob {
 		loginName = plArgs.Wallet + "." + plArgs.Username
 	}
 	crylog.Info("Attempting to reconnect...")
-	err, code, message, jc := cl.Connect(
-		"cryptonote.social:5555", plArgs.UseTLS, plArgs.Agent, loginName, plArgs.Config, plArgs.RigID)
+	dest := getServerHostPort(plArgs.UseTLS, plArgs.Dev)
+	err, code, message, jc := cl.Connect(dest, plArgs.UseTLS, plArgs.Agent, loginName, plArgs.Config, plArgs.RigID)
 	if err == nil {
 		if code != 0 {
 			crylog.Warn("Pool server returned login warning:", message)
