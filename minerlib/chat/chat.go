@@ -56,7 +56,7 @@ func GetChatsToSend(diff int64) []client.ChatToSend {
 		return nil
 	}
 	r := []client.ChatToSend{}
-	for diff > HASHES_PER_CHAT && chatToSendIndex < len(chatQueue) && len(r) < MAX_CHATS_PER_SHARE {
+	for diff >= HASHES_PER_CHAT && chatToSendIndex < len(chatQueue) && len(r) < MAX_CHATS_PER_SHARE {
 		r = append(r, client.ChatToSend{
 			ID:      int64(chatToSendIndex) ^ randID,
 			Message: chatQueue[chatToSendIndex],

@@ -684,7 +684,7 @@ func goMine(job client.MultiClientJob, thread int) {
 				time.Sleep(time.Second)
 			}
 			chats := chat.GetChatsToSend(int64(diffTarget))
-			//crylog.Info("sending chatmsg:", chatMsg)
+			//crylog.Info("sending chatmsgs:", chats)
 			resp, err := cl.SubmitWork(fnonce, jobid, chats)
 			if err != nil {
 				crylog.Warn("Submit work client failure:", jobid, err)
