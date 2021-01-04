@@ -20,6 +20,8 @@ typedef struct pool_login_args {
   const char* agent;
   // config: advanced options config string, can be empty string
   const char* config;
+  // dev: set to true to connect to develompent server instead of prod
+  bool dev;
 } pool_login_args;
  
  
@@ -44,7 +46,8 @@ pool_login_response pool_login(const pool_login_args *args) {
 				(char*)args->rigid,
 				(char*)args->wallet,
 				(char*)args->agent,
-				(char*)args->config);
+				(char*)args->config,
+				args->dev);
   pool_login_response response;
   response.code = (int)r.r0;
   response.message = r.r1;

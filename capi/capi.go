@@ -13,7 +13,8 @@ func PoolLogin(
 	rigid *C.char,
 	wallet *C.char,
 	agent *C.char,
-	config *C.char) (
+	config *C.char,
+	bool dev) (
 	code int,
 	message *C.char) {
 	args := &minerlib.PoolLoginArgs{
@@ -23,6 +24,7 @@ func PoolLogin(
 		Agent:    C.GoString(agent),
 		Config:   C.GoString(config),
 		UseTLS:   true,
+		Dev:      dev,
 	}
 	resp := minerlib.PoolLogin(args)
 	return resp.Code, C.CString(resp.Message)

@@ -116,6 +116,9 @@ type PoolLoginArgs struct {
 
 	// UseTLS: Whether to use TLS when connecting to the pool
 	UseTLS bool
+
+	// Dev: Whether to connect to the dev server or prod
+	Dev bool
 }
 
 type PoolLoginResponse struct {
@@ -174,6 +177,20 @@ func getMiningActivityState() int {
 	return MINING_ACTIVE
 }
 
+func getServerHostPort(useTLS, dev bool) string {
+	switch {
+	case useTLS && !dev:
+		return "cryptonote.social:5556"
+	case !useTLS && !dev:
+		return "cryptonote.social:5555"
+	case useTLS && !dev:
+		return "cryptonote.social:4445"
+		//	case !useTLS && dev:
+	default:
+		return "cryptonote.social:4444"
+	}
+}
+
 // Called by the user to log into the pool for the first time, or re-log into the pool with new
 // credentials.
 func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
@@ -207,10 +224,7 @@ func PoolLogin(args *PoolLoginArgs) *PoolLoginResponse {
 	agent := args.Agent
 	config := args.Config
 	rigid := args.RigID
-	dest := "cryptonote.social:5555"
-	if args.UseTLS {
-		dest = "cryptonote.social:5556"
-	}
+	dest := getServerHostPort(args.UseTLS, args.Dev)
 	err, code, message, jc := cl.Connect(dest, args.UseTLS, agent, loginName, config, rigid)
 	if err != nil {
 		if code != 0 {

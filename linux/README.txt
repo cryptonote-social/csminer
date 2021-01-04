@@ -1,4 +1,4 @@
-csminer v0.2.0 (Linux/Gnome version)
+csminer v0.3.0 (Linux/Gnome version)
 
 SYNOPSIS
 
@@ -66,6 +66,9 @@ username and you can login with the username alone, e.g.:
 
 ./csminer -user=your-chosen-username
 
+Wallet address must be specified however if you want to send authenticated chat messages or
+make config updates such as changing your notification e-mail address.
+
 Implementation
 
 csminer utilizes the RandomX implementation from https://github.com/tevador/RandomX and will
@@ -73,4 +76,5 @@ perform similarly to other mining software based on this library such as xmrig.
 
 Feedback & Bug Reports
 
-Send to: <cryptonote.social@gmail.com>
+Send to: <cryptonote.social@gmail.com>, or send a chat to the build-in chatroom using the "c <chat
+message>" key command.

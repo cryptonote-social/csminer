@@ -46,6 +46,7 @@ type MinerConfig struct {
 	ExcludeHrStart, ExcludeHrEnd int
 	UseTLS                       bool
 	AdvancedConfig               string
+	Dev                          bool
 }
 
 func Mine(c *MinerConfig) error {
@@ -75,6 +76,7 @@ func Mine(c *MinerConfig) error {
 			Agent:    c.Agent,
 			Config:   c.AdvancedConfig,
 			UseTLS:   c.UseTLS,
+			Dev:      c.Dev,
 		})
 		if plResp.Code < 0 {
 			crylog.Error("Pool server not responding:", plResp.Message)
