@@ -69,6 +69,9 @@ func Mine(c *MinerConfig) error {
 
 	sleepSec := 3 * time.Second // time to sleep if connection attempt fails
 	for {
+		if c.Dev {
+			crylog.Warn("\n\n=================\n\nCONNECTING TO DEV SERVER -- THIS IS FOR TESTING ONLY\n\n=================\n\n")
+		}
 		plResp := minerlib.PoolLogin(&minerlib.PoolLoginArgs{
 			Username: c.Username,
 			RigID:    c.RigID,

@@ -28,6 +28,7 @@ var (
 	exclude = flag.String("exclude", "", "pause mining during these hours, e.g. -exclude=11-16 will pause mining between 11am and 4pm")
 	config  = flag.String("config", "", "advanced pool configuration options, e.g. start_diff=1000;donate=1.0")
 	wallet  = flag.String("wallet", "", "your wallet id. only specify this when establishing a new username, or specifying a 'secure' config change such as a change in donation amount")
+	dev     = flag.Bool("dev", false, "whether to connect to dev server")
 )
 
 func MultiMain(s MachineStater, agent string) {
@@ -127,6 +128,7 @@ func MultiMain(s MachineStater, agent string) {
 		ExcludeHrEnd:   hr2,
 		UseTLS:         *tls,
 		AdvancedConfig: *config,
+		Dev:            *dev,
 	}
 	if err = Mine(&config); err != nil {
 		crylog.Fatal("Miner failed:", err)
