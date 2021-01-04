@@ -1,4 +1,4 @@
-csminer v0.3.0 (Linux/Gnome version)
+csminer v0.3.1 (Linux/Gnome version)
 
 SYNOPSIS
 
