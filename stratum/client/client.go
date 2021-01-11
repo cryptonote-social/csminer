@@ -63,9 +63,7 @@ type MultiClientJob struct {
 	ConnNonce         uint32 `json:"nonce"`
 }
 
-type SubmitWorkResult struct {
-	Status string `json:"status"`
-
+type StatsResult struct {
 	Progress       float64 // progress of this user
 	LifetimeHashes int64   // hashes from this user over its lifetime
 	Paid           float64 // Total crypto paid to this user over its lifetime.
@@ -85,6 +83,16 @@ type SubmitWorkResult struct {
 	PoolFee    float64
 }
 
+type SubmitWorkResult struct {
+	Status string `json:"status"`
+	StatsResult
+
+	// ChatsResult is for returning new chats in the response, but only if explicitly requested by
+	// setting a non-zero chat_token in the request. Will be nil if chats were not requested or if
+	// there are no new chats.
+	ChatsResult *GetChatsResult
+}
+
 type ChatResult struct {
 	Username  string // user sending the chat
 	Message   string // the chat message
@@ -95,6 +103,11 @@ type ChatResult struct {
 type GetChatsResult struct {
 	Chats     []ChatResult
 	NextToken int64
+
+	// StatsResult is for also returning updated stats, but only if explicitly requested by setting
+	// update_stats to true in the request. This can be used to avoid having to make another round
+	// trip to also update stats.
+	StatsResult *StatsResult
 }
 
 type Response struct {
@@ -293,7 +306,8 @@ func (cl *Client) submitRequest(submitRequest interface{}, expectedResponseID ui
 	return response, nil
 }
 
-func (cl *Client) GetChats(chatToken int64) (*Response, error) {
+// If updateStats is true, then get_chats will also return the lastest user stats.
+func (cl *Client) GetChats(chatToken int64, updateStats bool) (*Response, error) {
 	chatRequest := &struct {
 		ID     uint64      `json:"id"`
 		Method string      `json:"method"`
@@ -302,8 +316,9 @@ func (cl *Client) GetChats(chatToken int64) (*Response, error) {
 		ID:     GET_CHATS_JSON_ID,
 		Method: "get_chats",
 		Params: &struct {
-			ChatToken int64 `json:"chat_token"`
-		}{chatToken},
+			ChatToken   int64 `json:"chat_token"`
+			UpdateStats bool  `json:"update_stats"` // if true, then return update stats results too
+		}{chatToken, updateStats},
 	}
 
 	return cl.submitRequest(chatRequest, GET_CHATS_JSON_ID)
@@ -314,8 +329,9 @@ type ChatToSend struct {
 	Message string
 }
 
-// if error is returned then client will be closed and put in not-alive state
-func (cl *Client) SubmitWork(nonce string, jobid string, chats []ChatToSend) (*Response, error) {
+// If chatToken is non-zero then submit_work will return new chats, if there are any.  If error is
+// returned by this method, then client will be closed and put in not-alive state.
+func (cl *Client) SubmitWork(nonce string, jobid string, chats []ChatToSend, chatToken int64) (*Response, error) {
 	submitRequest := &struct {
 		ID     uint64      `json:"id"`
 		Method string      `json:"method"`
@@ -329,8 +345,9 @@ func (cl *Client) SubmitWork(nonce string, jobid string, chats []ChatToSend) (*R
 			Nonce  string `json:"nonce"`
 			Result string `json:"result"`
 
-			Chats []ChatToSend `json:"chats"`
-		}{"696969", jobid, nonce, "", chats},
+			Chats     []ChatToSend `json:"chats"`
+			ChatToken int64        `json:"chat_token"` // if non-zero, then return any new chats too
+		}{"696969", jobid, nonce, "", chats, chatToken},
 	}
 	return cl.submitRequest(submitRequest, SUBMIT_WORK_JSON_ID)
 }

@@ -55,6 +55,19 @@ func Init() {
 	}
 }
 
+func SecondsOld() int {
+	mutex.Lock()
+	defer mutex.Unlock()
+	return secondsOld()
+}
+
+func secondsOld() int {
+	if lastPoolUpdateTime.IsZero() {
+		return -1
+	}
+	return int(time.Now().Sub(lastPoolUpdateTime).Seconds())
+}
+
 // Call whenever we're at at a point where recent hashrate calculation would be accurate,
 // e.g. after all worker threads have been tallied.
 func RecentStatsNowAccurate() {
@@ -154,15 +167,11 @@ func GetSnapshot(isMining bool) (s *Snapshot, secondsSinceReset float64, seconds
 		r.Accumulated = accumulated
 		r.TimeToReward = timeToReward
 	}
-	if lastPoolUpdateTime.IsZero() {
-		r.SecondsOld = -1.0
-	} else {
-		r.SecondsOld = int(time.Now().Sub(lastPoolUpdateTime).Seconds())
-	}
+	r.SecondsOld = secondsOld()
 	return r, time.Now().Sub(recentStatsResetTime).Seconds(), elapsedRecent
 }
 
-func RefreshPoolStats2(swr *client.SubmitWorkResult) {
+func RefreshPoolStats2(swr *client.StatsResult) {
 	diff := float64(swr.NetworkDifficulty)
 	hr := float64(swr.PPROPHashrate)
 	var ttreward string

@@ -82,22 +82,24 @@ func ChatSent(id int64) {
 	}
 }
 
-func ChatsReceived(chats []client.ChatResult, chatToken int64, fetchedToken int64) {
-	if len(chats) == 0 && chatToken == fetchedToken {
+// ChatsReceived should be called by whenever the server returns a GetChatsResult. tokenSent should
+// be set to the value of NextToken that was used in the request to the server that produced the
+// GetChatsResult response.
+func ChatsReceived(cr *client.GetChatsResult, tokenSent int64) {
+	if len(cr.Chats) == 0 && cr.NextToken == tokenSent {
 		return
 	}
 	mutex.Lock()
 	defer mutex.Unlock()
-	if nextToken != fetchedToken {
+	if nextToken != tokenSent {
 		// Another chat request must have succeeded before this one.
-		crylog.Warn("chats updated since this fetch, discarding:", chats)
+		crylog.Warn("chats updated since this fetch, discarding:", cr.Chats)
 		return
 	}
-	//crylog.Info("New chats received:", len(chats), chatToken, fetchedToken)
-	for i := range chats {
-		receivedQueue = append(receivedQueue, &chats[i])
+	for i := range cr.Chats {
+		receivedQueue = append(receivedQueue, &cr.Chats[i])
 	}
-	nextToken = chatToken
+	nextToken = cr.NextToken
 }
 
 func HasChats() bool {

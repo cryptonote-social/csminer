@@ -514,7 +514,7 @@ func RequestRecentStatsUpdate() {
 		// dispatch loop inactive so there are no stats to update
 		return
 	}
-	go pokeJobDispatcher(UPDATE_STATS_POKE) // own gorouting so as not to block
+	go pokeJobDispatcher(UPDATE_STATS_POKE) // spawn goroutine so as not to block
 }
 
 func GetMiningState() *GetMiningStateResponse {
@@ -636,8 +636,8 @@ func printStats(isMining bool) {
 
 func GetChats() {
 	nt := chat.NextToken()
-	//crylog.Info("Getting chats:", nt)
-	resp, err := cl.GetChats(nt)
+	// we also request stats to be returned if they are more than a minute stale
+	resp, err := cl.GetChats(nt, (stats.SecondsOld() >= 60))
 	if err != nil {
 		crylog.Error("Failed to retrieve chats:", nt, err)
 		return
@@ -649,7 +649,11 @@ func GetChats() {
 		cl.Close()
 		return
 	}
-	chat.ChatsReceived(cr.Chats, cr.NextToken, nt)
+	chat.ChatsReceived(cr, nt)
+	if cr.StatsResult != nil {
+		crylog.Info("Got stats:", cr.StatsResult)
+		stats.RefreshPoolStats2(cr.StatsResult)
+	}
 }
 
 func goMine(job client.MultiClientJob, thread int) {
@@ -685,7 +689,11 @@ func goMine(job client.MultiClientJob, thread int) {
 			}
 			chats := chat.GetChatsToSend(int64(diffTarget))
 			//crylog.Info("sending chatmsgs:", chats)
-			resp, err := cl.SubmitWork(fnonce, jobid, chats)
+			nt := chat.NextToken()
+			// Note there's a rare potential bug here if nt == 0, since a 0 token for this RPC
+			// indicates "don't fetch chats" for backwards compatibility with older clients. Should
+			// this case even occur though, it will be resolved by the chat polling loop anyway.
+			resp, err := cl.SubmitWork(fnonce, jobid, chats, nt)
 			if err != nil {
 				crylog.Warn("Submit work client failure:", jobid, err)
 				cl.Close()
@@ -713,13 +721,16 @@ func goMine(job client.MultiClientJob, thread int) {
 				return
 			}
 			if swr.PoolMargin > 0.0 {
-				stats.RefreshPoolStats2(swr)
+				tmp := &swr.StatsResult
+				stats.RefreshPoolStats2(tmp)
 			} else {
+				// This shouldn't ever happen if the server is behaving appropriately.
 				crylog.Warn("Didn't get pool stats in response:", resp.Result)
 				updatePoolStats(true)
 			}
-			if resp.ChatToken != chat.NextToken() {
-				go GetChats()
+			if swr.ChatsResult != nil {
+				crylog.Info("Got chats:", swr.ChatsResult)
+				chat.ChatsReceived(swr.ChatsResult, nt)
 			}
 		}(fnonce, job.JobID)
 	}
