@@ -14,7 +14,7 @@ func PoolLogin(
 	wallet *C.char,
 	agent *C.char,
 	config *C.char,
-	bool dev) (
+	dev bool) (
 	code int,
 	message *C.char) {
 	args := &minerlib.PoolLoginArgs{
