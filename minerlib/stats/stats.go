@@ -1,7 +1,6 @@
 package stats
 
 import (
-	//	"github.com/cryptonote-social/csminer/crylog"
 	"github.com/cryptonote-social/csminer/stratum/client"
 
 	"encoding/json"
@@ -99,12 +98,14 @@ func ShareRejected() {
 	sharesRejected++
 }
 
-// Call every time an event happens that may induce a big change in hashrate,
-// e.g. reseeding, adding/removing threads, restablishing a connection.
+// Call every time an event happens that may induce a big change in hashrate, e.g. reseeding,
+// adding/removing threads, restablishing a connection. Make sure all workers are stopped before
+// calling otherwise hashrate will turn out inaccurate.
 func ResetRecent() {
 	mutex.Lock()
 	defer mutex.Unlock()
 	recentHashes = 0
+	recentHashesAccurate = 0
 	now := time.Now()
 	accurateTime = now
 	recentStatsResetTime = now

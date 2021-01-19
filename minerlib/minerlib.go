@@ -489,6 +489,7 @@ func handlePoke(poke int) {
 		return
 
 	case STATE_CHANGE_POKE:
+		stopWorkers()
 		stats.ResetRecent()
 		return
 
