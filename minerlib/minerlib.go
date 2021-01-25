@@ -652,7 +652,6 @@ func GetChats() {
 	}
 	chat.ChatsReceived(cr, nt)
 	if cr.StatsResult != nil {
-		crylog.Info("Got stats:", cr.StatsResult)
 		stats.RefreshPoolStats2(cr.StatsResult)
 	}
 }
