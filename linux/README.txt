@@ -26,7 +26,7 @@ All arguments are optional:
         number of threads (default 1)
   -rigid <string>
         your rig id (default "csminer")
-  -tls <bool>
+  -tls=<bool>
         whether to use TLS when connecting to the pool (default false)
   -config <string>
         advanced pool config option string, for specifying starting diff, donation percentage,
