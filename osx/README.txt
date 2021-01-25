@@ -1,4 +1,4 @@
-csminer v0.2.0 (OSX version)
+csminer v0.3.2 (OSX version)
 
 SYNOPSIS
 
@@ -27,6 +27,8 @@ All arguments are optional:
         number of threads (default 1)
   -rigid <string>
         your rig id (default "csminer")
+  -tls <bool>
+        whether to use TLS when connecting to the pool (default false)
   -config <string>
         advanced pool config option string, for specifying starting diff, donation percentage,
         email address for notifications, and more. See "advanced configuration options" under Get
@@ -77,4 +79,5 @@ perform similarly to other mining software based on this library such as xmrig.
 
 Feedback & Bug Reports
 
-Send to: <cryptonote.social@gmail.com>
+Send to: <cryptonote.social@gmail.com>, or send a chat to the build-in chatroom using the "c <chat
+message>" key command.

@@ -81,4 +81,6 @@ perform similarly to other mining software based on this library such as xmrig.
 
 Feedback & Bug Reports
 
-Send to: <cryptonote.social@gmail.com>
+Send to: <cryptonote.social@gmail.com>, or send a chat to the build-in chatroom using the "c <chat
+message>" key command.
+
