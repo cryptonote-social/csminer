@@ -729,7 +729,7 @@ func goMine(job client.MultiClientJob, thread int) {
 				updatePoolStats(true)
 			}
 			if swr.ChatsResult != nil {
-				crylog.Info("Got chats:", swr.ChatsResult)
+				//crylog.Info("Got chats:", swr.ChatsResult)
 				chat.ChatsReceived(swr.ChatsResult, nt)
 			}
 		}(fnonce, job.JobID)
