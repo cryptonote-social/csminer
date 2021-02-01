@@ -5,6 +5,7 @@ package csminer
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -258,7 +259,7 @@ func printStatsPeriodically() {
 
 func printChat(unm string, ts int64, msg string) {
 	date := time.Unix(ts, 0).Format(time.RFC1123)
-	crylog.Info("\n\n[", unm, "] (", date, ")\n", msg, "\n")
+	fmt.Printf("\n[ %s ] (%s):\n%s\n\n", unm, date, msg)
 }
 
 func monitorMachineState(ch chan MachineState) {
