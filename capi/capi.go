@@ -1,5 +1,7 @@
 package main
 
+// +build 386
+
 import "C"
 
 import (
