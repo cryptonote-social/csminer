@@ -230,13 +230,21 @@ func (cl *Client) Connect(
 		return err, 0, "", nil
 	}
 	if response.Result == nil {
-		crylog.Error("Didn't get job result from login response:", response.Error)
-		return errors.New("stratum server error"), response.Error.Code, response.Error.Message, nil
+		if response.Error != nil {
+			crylog.Error("Didn't get job result from login response:", response.Error)
+			return errors.New("stratum server error"), response.Error.Code, response.Error.Message, nil
+		}
+		crylog.Error("Malformed login response:", response)
+		return errors.New("malformed login response"), 0, "", nil
 	}
 
 	cl.responseChannel = make(chan *Response)
 	cl.alive = true
 	jc := make(chan *MultiClientJob)
+	if response.Result.Job == nil {
+		crylog.Error("malformed login response result:", response.Result)
+		return errors.New("malformed login response case 2"), 0, "", nil
+	}
 	response.Result.Job.ChatToken = response.ChatToken
 	go dispatchJobs(cl.conn, jc, response.Result.Job, cl.responseChannel)
 	if response.Warning != nil {

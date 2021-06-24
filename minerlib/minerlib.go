@@ -385,10 +385,10 @@ func MiningLoop(jobChan <-chan *client.MultiClientJob, done chan<- bool) {
 				cl.Close()
 				newChan := reconnectClient()
 				if newChan == nil {
+					stopWorkers() // stop hashing if we're unable to reconnect since we can't submit shares
 					crylog.Info("reconnect failed. sleeping for", sleepSec, "seconds before trying again")
 					time.Sleep(sleepSec)
 					sleepSec += time.Second
-					stopWorkers() // stop hashing if we're unable to reconnect since we can't submit shares
 					continue
 				}
 				// Set up fresh stats for new connection
