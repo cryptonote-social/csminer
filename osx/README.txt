@@ -1,4 +1,4 @@
-csminer v0.3.2 (OSX version)
+csminer v0.3.3 (OSX version)
 
 SYNOPSIS
 

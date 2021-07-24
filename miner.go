@@ -57,6 +57,9 @@ func Mine(c *MinerConfig) error {
 		ExcludeHourStart: c.ExcludeHrStart,
 		ExcludeHourEnd:   c.ExcludeHrEnd,
 	})
+	if imResp.Code < 0 {
+		return fmt.Errorf("Fatal InitMiner failure: %d", imResp.Code)
+	}
 	if imResp.Code > 2 {
 		crylog.Error("Bad configuration:", imResp.Message)
 		return errors.New("InitMiner failed: " + imResp.Message)
