@@ -1,0 +1,6 @@
+github.com/brunoqc/go-windows-session-notifications v0.0.0-20170424175830-fec440a22328 h1:Nf03efSjxTO1zrg8P2WR3UVXfSNzHXl5F1h7Im4nqtI=
+github.com/brunoqc/go-windows-session-notifications v0.0.0-20170424175830-fec440a22328/go.mod h1:WGETPIXmRb9fIUDuJdMnbNfT41loNcP20LZ65ymtk5Q=
+github.com/godbus/dbus/v5 v5.1.0 h1:4KLkAxT3aOY8Li4FRJe/KvhoNFFxo0m6fNuFUO8QJUk=
+github.com/godbus/dbus/v5 v5.1.0/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
+golang.org/x/sys v0.0.0-20220422013727-9388b58f7150 h1:xHms4gcpe1YE7A3yIllJXP16CMAGuqwO2lX1mTyyRRc=
+golang.org/x/sys v0.0.0-20220422013727-9388b58f7150/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=

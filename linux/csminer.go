@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"github.com/cryptonote-social/csminer"
 	"github.com/cryptonote-social/csminer/crylog"
-	"github.com/godbus/dbus"
+	"github.com/godbus/dbus/v5"
 )
 
 func main() {
