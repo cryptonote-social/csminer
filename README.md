@@ -8,33 +8,31 @@ Project uses CGO and relays on https://github.com/cryptonote-social/RandomX.
 https://cryptonote.social/tools/csminer
 
 ## Build
-Install dependacies
-```sh
-apt update && apt install git make cmake gcc g++
-```
+1. [Install Go](https://go.dev/doc/install).
+1. Install build dependencies `git make cmake gcc g++`
+1. Build RandomX
+    ```sh
+    git clone https://github.com/cryptonote-social/RandomX.git && \
+    mkdir -p RandomX/build && cd RandomX/build/ && \
+    cmake .. && make && \
+    cd ../rxlib && ./make.sh && \
+    cd ../../
+    ```
 
 ### Linux
 ```sh
-git clone https://github.com/cryptonote-social/RandomX.git && \
 git clone https://github.com/cryptonote-social/csminer.git && \
-mkdir -p RandomX/build && cd RandomX/build/ && \
-cmake .. && make && \
-cd ../rxlib && ./make.sh && \
-cd ../../csminer/ && go build linux/csminer.go
+cd csminer/ && go build linux/csminer.go
 ```
 
 ### OSX
 ```sh
-git clone https://github.com/cryptonote-social/RandomX.git && \
 git clone https://github.com/cryptonote-social/csminer.git && \
-mkdir -p RandomX/build && cd RandomX/build/ && \
-cmake .. && make && \
-cd ../rxlib && ./make.sh && \
-cd ../../csminer/ && go build osx/csminer.go
+cd csminer/ && go build osx/csminer.go
 ```
 
 ### Windows
-```ps
-...
-cd ../../csminer/ && go build win/csminer.go
+```sh
+git clone https://github.com/cryptonote-social/csminer.git && \
+cd csminer/ && go build win/csminer.go
 ```
