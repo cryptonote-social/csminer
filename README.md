@@ -2,7 +2,7 @@ Csminer (cryptonote.social miner) is an easy-to-use command-line miner for Moner
 
 By default, csminer will mine with a single thread, and only when your screen is inactive. It also mines only while on AC power, making it suitable even for laptops. You can also have csminer pause mining during certain hours of the day, for example to avoid periods of higher electricity rates or higher expected machine usage. All of these options are of course easily configurable if you wish to mine more aggressively! 
 
-Project uses CGO and relays on https://github.com/cryptonote-social/RandomX.git.
+Project uses CGO and relays on https://github.com/cryptonote-social/RandomX.
 
 ## Install
 https://cryptonote.social/tools/csminer
@@ -20,8 +20,7 @@ git clone https://github.com/cryptonote-social/csminer.git && \
 mkdir -p RandomX/build && cd RandomX/build/ && \
 cmake .. && make && \
 cd ../rxlib && ./make.sh && \
-cd ../../csminer/ && \
-go build linux/csminer.go
+cd ../../csminer/ && go build linux/csminer.go
 ```
 
 ### OSX
@@ -31,16 +30,11 @@ git clone https://github.com/cryptonote-social/csminer.git && \
 mkdir -p RandomX/build && cd RandomX/build/ && \
 cmake .. && make && \
 cd ../rxlib && ./make.sh && \
-cd ../../csminer/ && \
-go build osx/csminer.go
+cd ../../csminer/ && go build osx/csminer.go
 ```
 
 ### Windows
 ```ps
 ...
-```
-
-### Linux (ARM)
-```sh
-...
+cd ../../csminer/ && go build win/csminer.go
 ```
