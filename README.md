@@ -2,7 +2,7 @@ Csminer is an easy-to-use command-line miner for Monero providing "set it and fo
 
 By default, csminer will mine with a single thread, and only when your screen is inactive. It also mines only while on AC power, making it suitable even for laptops. You can also have csminer pause mining during certain hours of the day, for example to avoid periods of higher electricity rates or higher expected machine usage. All of these options are of course easily configurable if you wish to mine more aggressively! 
 
-Project uses CGO and relays on https://github.com/cryptonote-social/RandomX.
+Project uses CGO and relies on https://github.com/cryptonote-social/RandomX.
 
 ## Install
 https://cryptonote.social/tools/csminer
