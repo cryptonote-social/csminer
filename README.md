@@ -15,7 +15,7 @@ https://cryptonote.social/tools/csminer
     git clone https://github.com/cryptonote-social/RandomX.git && \
     mkdir -p RandomX/build && cd RandomX/build/ && \
     cmake .. && make && \
-    cd ../rxlib && ./make.sh && \
+    cd ../rxlib/ && ./make.sh && \
     cd ../../
     ```
 
